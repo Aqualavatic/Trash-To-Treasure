@@ -14,7 +14,7 @@ st.set_page_config(
 # Banner chuyển hướng ngược về Vercel Showcase
 st.markdown("""
     <div style="background-color: #ECFDF5; padding: 12px 18px; border-radius: 12px; border: 1px solid #A7F3D0; margin-bottom: 24px;">
-        <span>👈 <a href="https://trashtotreasure-omega.vercel.app/" target="_self" style="color: #059669; font-weight: bold; text-decoration: none;">Quay lại Trang chủ</a></span>
+        <span>👈 <a href="https://trashtotreasure-omega.vercel.app/" target="_self" style="color: #059669; font-weight: bold; text-decoration: none;">Quay lại Trang chủ Vercel Showcase</a></span>
         <span style="float: right; color: #047857; font-size: 0.85em; font-weight: 500;">Powered by Groq LPU & Intel OpenVINO</span>
     </div>
 """, unsafe_allow_html=True)
@@ -90,7 +90,7 @@ if uploaded_file is not None:
                                 ],
                             }
                         ],
-                        model="llama-3.3-70b-versatile",
+                        model="llama-3.2-11b-vision-preview",
                         temperature=0.2,
                     )
 

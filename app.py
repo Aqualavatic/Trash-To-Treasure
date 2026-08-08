@@ -75,6 +75,7 @@ if uploaded_file is not None:
                     """
 
                     # Gọi mô hình Groq Llama 3.2 Vision
+                    # Gọi mô hình Vision hiện tại của Groq
                     chat_completion = client.chat.completions.create(
                         messages=[
                             {
@@ -90,7 +91,7 @@ if uploaded_file is not None:
                                 ],
                             }
                         ],
-                        model="llama-3.2-11b-vision-preview",
+                        model="qwen/qwen3.6-27b",  # <-- Đã đổi sang model Vision đang hoạt động
                         temperature=0.2,
                     )
 

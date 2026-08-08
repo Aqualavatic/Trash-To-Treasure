@@ -190,26 +190,26 @@ if uploaded_file is not None:
                     target_lang = "Vietnamese" if lang == "🇻🇳 Tiếng Việt" else "English"
                     safety_prompt = "KIDS MODE: NO sharp tools/glue guns." if child_mode else ""
 
-                    # Prompt tối ưu hóa độ dài để Groq LPU sinh kết quả siêu tốc
+                    # Prompt cực kỳ ngắn gọn để tăng tốc độ phản hồi tối đa
                     prompt = f"""
-                    DIY Expert. Respond ONLY in {target_lang}. NO reasoning.
-                    Directly output clean Markdown:
+                    Role: Professional DIY Expert. Respond strictly in {target_lang}.
+                    Do NOT think, reason, or output XML tags. Output plain Markdown only:
 
                     ### 🔍 1. Identified Materials
-                    - Item list.
+                    - List material items found.
 
-                    ### 💡 2. Top 2 DIY Ideas
-                    - **Idea 1:** [Name]
-                    - **Idea 2:** [Name]
+                    ### 💡 2. Top 2 Ideas
+                    - **Idea 1:** [Project Name]
+                    - **Idea 2:** [Project Name]
 
-                    ### 🛠️ 3. Quick Steps
-                    - **Project:** [Best Name]
-                    - **Tools:** [Tools]
+                    ### 🛠️ 3. Quick DIY Steps
+                    - **Best Project:** [Project Name]
+                    - **Tools:** [Tools needed]
                     - **Steps:** 1. [Step 1] | 2. [Step 2] | 3. [Step 3]
-                    - **⚠️ Safety:** {safety_prompt}
+                    - **⚠️ Note:** {safety_prompt}
                     """
 
-                    # Dùng model llama-3.2-11b-vision-preview hoặc qwen3.6-27b với max_tokens tối ưu
+                    # Gọi model qwen/qwen3.6-27b đã tối ưu tốc độ
                     chat_completion = client.chat.completions.create(
                         messages=[
                             {
@@ -220,9 +220,9 @@ if uploaded_file is not None:
                                 ],
                             }
                         ],
-                        model="llama-3.2-11b-vision-preview", # Hoặc "qwen/qwen3.6-27b"
-                        temperature=0.1,
-                        max_tokens=600,
+                        model="qwen/qwen3.6-27b",
+                        temperature=0.1,            # Giảm sáng tạo thừa để phản hồi nhanh hơn
+                        max_completion_tokens=400,  # Ép ngắn gọn giúp Groq LPU sinh trong chớp mắt
                     )
 
                     final_result = clean_ai_response(chat_completion.choices[0].message.content)

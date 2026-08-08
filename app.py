@@ -2,6 +2,20 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
+st.set_page_config(
+    page_title="Trash2Treasure AI Engine",
+    page_icon="♻️",
+    layout="centered"
+)
+
+# Thêm Banner điều hướng ngược về Vercel
+st.markdown("""
+    <div style="background-color: #ECFDF5; padding: 10px 16px; border-radius: 12px; border: 1px solid #A7F3D0; margin-bottom: 20px;">
+        <span>👈 <a href="https://trashtotreasure-omega.vercel.app/" target="_self" style="color: #059669; font-weight: bold; text-decoration: none;">Quay lại Trang chủ Vercel Showcase</a></span>
+        <span style="float: right; color: #047857; font-size: 0.85em;">Powered by Intel OpenVINO & Gemini AI</span>
+    </div>
+""", unsafe_allow_html=True)
+
 # Cấu hình trang Streamlit
 st.set_page_config(page_title="Trash-to-Treasure Vision", page_icon="♻️", layout="centered")
 

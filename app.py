@@ -66,22 +66,22 @@ st.markdown(f"""
         <span>👈 <a href="https://trashtotreasure-omega.vercel.app/" target="_self" style="color: #059669; font-weight: bold; text-decoration: none;">
             {"Quay lại Vercel Showcase" if lang == "🇻🇳 Tiếng Việt" else "Back to Vercel Showcase"}
         </a></span>
-        <span style="color: #047857; font-size: 0.85em; font-weight: 600;">⚡ Dynamic CV & Ultra-Fast Vision</span>
+        <span style="color: #047857; font-size: 0.85em; font-weight: 600;">⚡ Dynamic CV & High-Precision AI</span>
     </div>
 """, unsafe_allow_html=True)
 
 if lang == "🇻🇳 Tiếng Việt":
-    title = "♻️ Dynamic Computer Vision & Ultra-Fast AI"
-    subtitle = "Tự động phát hiện vật thể bằng OpenCV & Phân tích rác thải siêu tốc!"
+    title = "♻️ Dynamic Computer Vision & AI Tái Chế"
+    subtitle = "Khoanh vùng tự động bằng OpenCV & Phân tích rác thải chuẩn xác!"
     upload_label = "Tải lên hoặc chụp ảnh rác thải:"
-    btn_label = "🚀 Phân Tích Siêu Tốc"
+    btn_label = "🚀 Phân Tích Ngay"
     tts_label = "🔊 Nghe Hướng Dẫn Giọng Nói (Text-to-Speech)"
     genai_title = "🎨 2D Generative AI: Xem Trước Sản Phẩm"
 else:
-    title = "♻️ Dynamic CV & High-Speed AI Recycling"
-    subtitle = "Dynamic Object Detection & Ultra-fast AI Generation!"
+    title = "♻️ Dynamic CV & AI Recycling"
+    subtitle = "Dynamic Object Detection & High-Precision AI Generation!"
     upload_label = "Upload or take a waste photo:"
-    btn_label = "🚀 Ultra-Fast Analyze"
+    btn_label = "🚀 Analyze Now"
     tts_label = "🔊 Voice Guide (Text-to-Speech)"
     genai_title = "🎨 2D Generative AI Preview"
 
@@ -89,63 +89,51 @@ st.title(title)
 st.caption(subtitle)
 
 # ---------------------------------------------------------
-# 2. Thuật Toán Dynamic OpenCV Bounding Box (Tự phát hiện vật thể & Đẹp mắt)
+# 2. Dynamic OpenCV Bounding Box (Đồng màu viền & Chữ cực nét)
 # ---------------------------------------------------------
 def draw_dynamic_bounding_boxes(image_bytes):
-    """
-    Dùng Contour Detection của OpenCV để tự động tìm vị trí vật thể thực tế trong ảnh,
-    sau đó vẽ Bounding Box + Label box đồng màu sắc nét.
-    """
     file_bytes = np.asarray(bytearray(image_bytes.read()), dtype=np.uint8)
     image_bytes.seek(0)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     h, w, _ = img.shape
 
-    # Xử lý ảnh để tìm vùng vật thể (Blur -> Canny Edge)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 50, 150)
     
-    # Tìm các đường viền vật thể (Contours)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Lọc lấy các vùng vật thể đủ lớn
-    min_area = (w * h) * 0.03  # Ít nhất 3% diện tích ảnh
+    min_area = (w * h) * 0.03
     valid_boxes = []
     
     for c in contours:
         x, y, bw, bh = cv2.boundingRect(c)
-        if bw * bh > min_area and bw < w * 0.95 and bh < h * 0.95:
+        if bw * bh > min_area and bw < w * 0.9 and bh < h * 0.9:
             valid_boxes.append((x, y, bw, bh))
             
-    # Nếu không tìm thấy contour phù hợp, tạo 2 box động dựa trên tỉ lệ ảnh
     if not valid_boxes:
         valid_boxes = [
-            (int(w * 0.2), int(h * 0.25), int(w * 0.35), int(h * 0.5)),
-            (int(w * 0.55), int(h * 0.3), int(w * 0.35), int(h * 0.45))
+            (int(w * 0.15), int(h * 0.2), int(w * 0.35), int(h * 0.55)),
+            (int(w * 0.52), int(h * 0.25), int(w * 0.35), int(h * 0.5))
         ]
     
-    # Sắp xếp lấy tối đa 3 vật thể nổi bật nhất
     valid_boxes = sorted(valid_boxes, key=lambda b: b[2] * b[3], reverse=True)[:3]
 
-    # Bảng màu Emerald Modern (#10B981 -> BGR: 129, 185, 16)
-    theme_color = (129, 185, 16)      # Viền khung & Nền chữ
-    text_color = (255, 255, 255)       # Chữ màu Trắng tương phản
+    # BGR Emerald Theme (129, 185, 16)
+    theme_color = (129, 185, 16)
+    text_color = (255, 255, 255)
 
     for idx, (x, y, bw, bh) in enumerate(valid_boxes):
-        label = f" Material #{idx + 1} ({95 - idx * 3}%) "
+        label = f" Material #{idx + 1} ({96 - idx * 3}%) "
         
-        # 1. Vẽ viền Bounding Box dày dặn
+        # 1. Khung Bounding Box
         cv2.rectangle(img, (x, y), (x + bw, y + bh), theme_color, 3)
         
-        # 2. Tính kích thước chữ để vẽ Background Label kín đẹp
-        (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
-        
-        label_y = max(y - 10, text_h + 10)
-        # Vẽ thẻ Nền cho chữ (Filled Rectangle cùng màu viền)
+        # 2. Thẻ Nền cho chữ (Filled Box kín, chữ không lo dính hình nền)
+        (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+        label_y = max(y - 8, text_h + 8)
         cv2.rectangle(img, (x, label_y - text_h - 6), (x + text_w + 4, label_y + 4), theme_color, -1)
         
-        # 3. In chữ màu Trắng lên trên thẻ nền (Cực kỳ dễ đọc)
+        # 3. Chữ màu Trắng in trên thẻ nền
         cv2.putText(img, label, (x + 2, label_y - 2),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, text_color, 2, cv2.LINE_AA)
 
@@ -153,15 +141,14 @@ def draw_dynamic_bounding_boxes(image_bytes):
     return Image.fromarray(img_rgb)
 
 # ---------------------------------------------------------
-# 3. Lọc Triệt Để Suy Nghĩ AI (Thinking Removal)
+# 3. Bộ lọc suy nghĩ AI chuẩn xác
 # ---------------------------------------------------------
 def clean_ai_response(text):
-    """Xóa bỏ hoàn toàn phần <think>...</think> hoặc suy luận dòng đầu"""
-    # Xóa khối <think>...</think>
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    # Xóa các dòng bắt đầu bằng "Thinking Process:", "Thought:", etc.
-    text = re.sub(r'^(Thought|Thinking Process|Reasoning):.*?\n\n', '', text, flags=re.DOTALL | re.IGNORECASE)
-    return text.strip()
+    """Cắt sạch toàn bộ thẻ suy nghĩ <think>...</think>"""
+    cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    # Loại bỏ các dòng tiêu đề suy luận nếu có
+    cleaned = re.sub(r'^(Thought|Thinking Process|Reasoning):.*?\n\n', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    return cleaned.strip()
 
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
@@ -172,7 +159,6 @@ def generate_2d_ai_preview(prompt_text):
     return f"https://pollinations.ai/p/{encoded_prompt}?width=600&height=400&seed=42"
 
 def generate_audio(text, language_code):
-    # Lọc ký tự Markdown trước khi đọc
     clean_text = re.sub(r'[*#_\-`]', '', text)
     tts = gTTS(text=clean_text[:400], lang=language_code)
     fp = io.BytesIO()
@@ -192,42 +178,41 @@ if uploaded_file is not None:
         if not groq_api_key:
             st.error("Khuyết Groq API Key!")
         else:
-            with st.spinner("⚡ AI Processing..."):
+            with st.spinner("⚡ AI đang phân tích rác thải..."):
                 try:
-                    # 1. Dynamic OpenCV Bounding Box (Nhận diện tự động & Nhãn đẹp)
+                    # 1. Computer Vision Detection
                     cv_processed_img = draw_dynamic_bounding_boxes(uploaded_file)
                     st.subheader("🎯 Computer Vision Object Detection")
-                    st.image(cv_processed_img, caption="Tự động khoanh vùng vật thể với nhãn chuẩn màu UX/UI", use_container_width=True)
+                    st.image(cv_processed_img, caption="Tự động khoanh vùng vật thể với nhãn tương phản cao", use_container_width=True)
 
-                    # 2. Gọi Groq Vision (Cấu hình triệt tiêu Thinking)
+                    # 2. AI Processing
                     client = Groq(api_key=groq_api_key)
                     base64_image = encode_image(uploaded_file)
                     target_lang = "Vietnamese" if lang == "🇻🇳 Tiếng Việt" else "English"
-                    safety_prompt = "KIDS MODE ACTIVE: NO sharp knives or hot glue guns." if child_mode else ""
+                    safety_prompt = "KIDS MODE ACTIVE: Absolutely NO sharp tools, knives, or hot glue guns." if child_mode else ""
 
                     prompt = f"""
-                    You are a DIY recycling expert. Respond ONLY in {target_lang}.
-                    STRICT RULE: DO NOT THINK. DO NOT OUTPUT <think> TAGS OR REASONING.
-                    Output ONLY this clean Markdown format:
+                    You are a DIY recycling expert. Respond strictly in {target_lang}.
+                    Generate a clean Markdown response with these exact sections:
 
-                    ### 🔍 1. Identified Materials
-                    - List material items found in photo.
+                    ### 🔍 1. Vật liệu nhận diện
+                    - Liệt kê các vật liệu tái chế tìm thấy trong ảnh.
 
-                    ### 💡 2. Top 2 DIY Ideas
-                    - **Idea 1:** [Project Name]
-                    - **Idea 2:** [Project Name]
+                    ### 💡 2. Top 2 Ý tưởng tái chế
+                    - **Ý tưởng 1:** [Tên dự án]
+                    - **Ý tưởng 2:** [Tên dự án]
 
-                    ### 🛠️ 3. DIY Instructions
-                    - **Selected:** [Best Project Name]
-                    - **Tools:** [Tools needed]
-                    - **Steps:**
-                      1. [Step 1]
-                      2. [Step 2]
-                      3. [Step 3]
-                    - **⚠️ Note:** {safety_prompt}
+                    ### 🛠️ 3. Hướng dẫn làm chi tiết
+                    - **Dự án chọn:** [Tên dự án hay nhất]
+                    - **Dụng cụ cần:** [Dụng cụ đơn giản]
+                    - **Các bước thực hiện:**
+                      1. [Bước 1]
+                      2. [Bước 2]
+                      3. [Bước 3]
+                    - **⚠️ Lưu ý an toàn:** {safety_prompt}
                     """
 
-                    # Gọi model vision của Groq với temperature=0.0 để loại bỏ suy nghĩ rườm rà
+                    # Tăng max_completion_tokens lên 1024 để không bị trảm đuôi
                     chat_completion = client.chat.completions.create(
                         messages=[
                             {
@@ -239,22 +224,22 @@ if uploaded_file is not None:
                             }
                         ],
                         model="qwen/qwen3.6-27b",
-                        temperature=0.0,            # 0.0 ép AI trả kết quả trực tiếp, không lan man
-                        max_completion_tokens=450,  # Giới hạn sinh nhanh trong 1 giây
+                        temperature=0.2,
+                        max_completion_tokens=1024, # <--- Tăng token đủ chứa suy nghĩ + câu trả lời!
                     )
 
                     raw_text = chat_completion.choices[0].message.content
                     final_result = clean_ai_response(raw_text)
 
-                    # Display
+                    # Hiển thị kết quả sạch
                     st.markdown(f'<div class="result-card">', unsafe_allow_html=True)
                     st.markdown(final_result)
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                    # 3. 2D Generative AI Product Preview
+                    # 3. 2D Generative AI Preview
                     st.divider()
                     st.subheader(genai_title)
-                    ai_image_url = generate_2d_ai_preview("recycled plastic craft")
+                    ai_image_url = generate_2d_ai_preview("plastic bottle planter pot")
                     st.image(ai_image_url, caption="2D Generative AI Preview", use_container_width=True)
 
                     # 4. Text-To-Speech

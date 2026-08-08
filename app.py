@@ -11,7 +11,7 @@ st.set_page_config(
 # Thêm Banner điều hướng ngược về Vercel
 st.markdown("""
     <div style="background-color: #ECFDF5; padding: 10px 16px; border-radius: 12px; border: 1px solid #A7F3D0; margin-bottom: 20px;">
-        <span>👈 <a href="https://trashtotreasure-omega.vercel.app/" target="_self" style="color: #059669; font-weight: bold; text-decoration: none;">Quay lại Trang chủ Vercel Showcase</a></span>
+        <span>👈 <a href="https://trashtotreasure-omega.vercel.app/" target="_self" style="color: #059669; font-weight: bold; text-decoration: none;">Quay lại Trang chủ</a></span>
         <span style="float: right; color: #047857; font-size: 0.85em;">Powered by Intel OpenVINO & Gemini AI</span>
     </div>
 """, unsafe_allow_html=True)
@@ -41,7 +41,7 @@ if uploaded_file is not None:
             with st.spinner("AI đang phân tích vật liệu và vạch ra ý tưởng..."):
                 try:
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     # Prompt tối ưu cho bài toán
                     safety_instruction = "LƯU Ý: Đang bật chế độ trẻ em, KHÔNG gợi ý sử dụng dao nhọn, kéo sắc, keo nến nóng hoặc vật dụng nguy hiểm." if child_mode else ""

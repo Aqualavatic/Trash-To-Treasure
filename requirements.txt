@@ -1,4 +1,7 @@
 streamlit
 groq
-pillow
 gtts
+pillow
+opencv-python-headless
+numpy
+requests

@@ -41,7 +41,7 @@ if uploaded_file is not None:
             with st.spinner("AI đang phân tích vật liệu và vạch ra ý tưởng..."):
                 try:
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    model = genai.GenerativeModel('gemini-2.0-flash')
                     
                     # Prompt tối ưu cho bài toán
                     safety_instruction = "LƯU Ý: Đang bật chế độ trẻ em, KHÔNG gợi ý sử dụng dao nhọn, kéo sắc, keo nến nóng hoặc vật dụng nguy hiểm." if child_mode else ""

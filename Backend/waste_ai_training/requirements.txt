@@ -1,5 +1,0 @@
-ultralytics
-openvino
-openvino-dev
-roboflow
-opencv-python

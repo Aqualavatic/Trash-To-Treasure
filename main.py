@@ -29,9 +29,6 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# -------------------------------------------------------------------
-# 2. KHỞI TẠO VÀ LOAD MODEL BEST.PT
-# -------------------------------------------------------------------
 MODEL_PATH = "models/best.pt"
 yolo_model = None
 

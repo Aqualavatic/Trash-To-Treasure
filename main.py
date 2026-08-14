@@ -14,6 +14,7 @@ from ultralytics import YOLO
 
 app = FastAPI(title="Trash2Treasure Vision Hybrid Backend")
 
+# Cấu hình CORS cho phép mọi nguồn gọi vào (hoặc đổi thành domain Vercel của bạn)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,14 +39,13 @@ if os.path.exists(MODEL_PATH):
 else:
     print(f"⚠️ Không tìm thấy file model tại {MODEL_PATH}")
 
+
 def run_yolo_inference(image: Image.Image) -> tuple[str, float]:
     """Hàm dự đoán bằng file best.pt"""
     if not yolo_model:
-        return "Plastic Bottle", 0.85  # Fallback nếu thiếu file best.pt
+        return "Plastic Bottle", 0.85
 
-    # Dự đoán ảnh với conf >= 0.4 (theo điểm F1 tối ưu của model bạn)
     results = yolo_model(image, conf=0.4)
-
     best_label = None
     max_conf = 0.0
 
@@ -64,52 +64,40 @@ def run_yolo_inference(image: Image.Image) -> tuple[str, float]:
 
 
 def generate_local_slm_diy(waste_type: str, is_kids: bool, is_en: bool) -> dict:
-    """Sinh ý tưởng DIY bằng Ollama hoặc Fallback"""
+    """Sinh ý tưởng DIY an toàn không bị chết khi chạy trên Cloud (Railway)"""
     ollama_url = "http://localhost:11434/api/generate"
-    lang_instruction = "Return strictly in ENGLISH." if is_en else "Trả về hoàn toàn bằng TIẾNG VIỆT."
-    kids_instruction = "NO sharp tools (knives, hot glue). Safe for 7yo kids." if is_kids else "Standard tools allowed."
-
-    prompt = f"""You are a recycling expert AI. Generate 1 creative DIY project for '{waste_type}' in RAW JSON format.
-REQUIREMENTS:
-- {lang_instruction}
-- {kids_instruction}
-- Return ONLY raw valid JSON format without markdown formatting.
-
-Schema:
-{{
-  "title": "Project Name",
-  "desc": "Short description",
-  "difficulty": "{'Super Easy' if is_kids else 'Easy'}",
-  "time": "15 mins",
-  "materials": ["Item 1", "Item 2"],
-  "steps": ["Step 1", "Step 2"]
-}}
-"""
-    payload = {"model": "qwen2.5:1.5b", "prompt": prompt, "stream": False}
+    
+    # Payload kiểm tra nhanh nếu chạy local có ollama
+    payload = {
+        "model": "qwen2.5:1.5b", 
+        "prompt": f"Generate 1 creative DIY project for '{waste_type}' in RAW JSON format.", 
+        "stream": False
+    }
 
     try:
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(ollama_url, data=data, headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(req, timeout=4) as response:
+        with urllib.request.urlopen(req, timeout=1) as response: # Timeout cực nhanh 1s để không bị nghẽn mạng trên Cloud
             res_body = json.loads(response.read().decode('utf-8'))
             raw_res = res_body.get("response", "").strip()
             if "```json" in raw_res: 
                 raw_res = raw_res.split("```json")[1].split("```")[0].strip()
             return json.loads(raw_res)
     except Exception:
+        # Fallback an toàn 100% trên Cloud khi không tìm thấy Ollama
         return {
             "title": f"Chậu cây mini từ {waste_type}" if not is_en else f"Mini Planter from {waste_type}",
-            "desc": "Dự án tái chế đơn giản tại nhà" if not is_en else "Simple indoor project",
+            "desc": "Dự án tái chế sáng tạo và hữu ích tại nhà" if not is_en else "Simple and creative indoor recycling project",
             "difficulty": "Rất Dễ" if is_kids else "Dễ",
-            "time": "10 mins",
-            "materials": [waste_type, "Đất", "Hạt giống"] if not is_en else [waste_type, "Soil", "Seeds"],
-            "steps": ["Cắt và vệ sinh bề mặt", "Đục lỗ thoát nước đáy", "Cho đất và trồng cây"]
+            "time": "15 mins",
+            "materials": [waste_type, "Kéo / Dao an toàn", "Màu vẽ"] if not is_en else [waste_type, "Scissors", "Colors"],
+            "steps": [
+                "Làm sạch và lau khô vật liệu." if not is_en else "Clean and dry the material.",
+                "Cắt tỉa tạo hình theo sở thích." if not is_en else "Cut and shape as desired.",
+                "Trang trí và sử dụng." if not is_en else "Decorate and use."
+            ]
         }
 
-
-# -------------------------------------------------------------------
-# API ENDPOINTS
-# -------------------------------------------------------------------
 
 @app.post("/api/analyze")
 async def analyze_waste_image(
@@ -127,11 +115,11 @@ async def analyze_waste_image(
         is_en = lang.lower() == "en"
 
         # -------------------------------------------------------------
-        # BRANCH 1: ONLINE (Gemini 3.6 Flash)
+        # BRANCH 1: ONLINE (Gemini Cloud)
         # -------------------------------------------------------------
         if client:
             try:
-                print("🌐 [ONLINE] Gọi Cloud Gemini 3.6 Flash...")
+                print("🌐 [ONLINE] Gọi Cloud Gemini...")
                 language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
 
                 prompt = f"""
@@ -162,6 +150,7 @@ RULES:
 KIDS MODE ({is_kids}): {'NO sharp/dangerous tools.' if is_kids else 'Standard tools.'}
 """
 
+                # Sử dụng chuẩn model Gemini phổ biến hiện tại trên Cloud
                 response = client.models.generate_content(
                     model='gemini-3.6-flash',
                     contents=[image, prompt],
@@ -169,23 +158,23 @@ KIDS MODE ({is_kids}): {'NO sharp/dangerous tools.' if is_kids else 'Standard to
                 )
 
                 result_json = json.loads(response.text)
-                result_json["engine"] = "Gemini 3.6 Flash (Cloud Online)"
+                result_json["engine"] = "Gemini Cloud Online"
                 return result_json
 
             except Exception as e:
-                print(f"⚠️ Gemini bận/lỗi ({e}). Chuyển sang Local YOLO (best.pt)...")
+                print(f"⚠️ Gemini bận/lỗi ({e}). Chuyển sang Local YOLO...")
 
         # -------------------------------------------------------------
-        # BRANCH 2: LOCAL / OFFLINE (YOLO best.pt + Local SLM)
+        # BRANCH 2: LOCAL / OFFLINE FALLBACK
         # -------------------------------------------------------------
-        print("⚡ [LOCAL] Chạy YOLO (best.pt) & Local SLM...")
+        print("⚡ [LOCAL] Chạy YOLO & Fallback DIY...")
         detected_waste, confidence = run_yolo_inference(image)
         
         if detected_waste == "Unknown Waste" or confidence == 0:
             return {
                 "has_waste": False,
                 "message": "Không tìm thấy rác thải trong ảnh." if not is_en else "No waste detected.",
-                "engine": "YOLO best.pt (Local Engine)"
+                "engine": "YOLO Edge Engine"
             }
 
         generated_diy = generate_local_slm_diy(detected_waste, is_kids, is_en)
@@ -197,11 +186,12 @@ KIDS MODE ({is_kids}): {'NO sharp/dangerous tools.' if is_kids else 'Standard to
             "category": "Rác tái chế" if not is_en else "Recyclable",
             "instructions": ["Làm sạch vật liệu", "Phân loại theo quy định"],
             "diy_ideas": [generated_diy],
-            "engine": "YOLO best.pt & Local SLM (Local Edge Engine)"
+            "engine": "YOLO best.pt & Fallback Engine"
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi xử lý: {str(e)}")
+        print(f"❌ Lỗi xử lý chung: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý hệ thống: {str(e)}")
 
 
 @app.get("/")

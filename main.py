@@ -10,12 +10,10 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-# 1. Nhập Ultralytics để chạy trực tiếp best.pt
 from ultralytics import YOLO
 
 app = FastAPI(title="Trash2Treasure Vision Hybrid Backend")
 
-# Cấu hình CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +22,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Khởi tạo Gemini Client
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -40,11 +37,6 @@ if os.path.exists(MODEL_PATH):
         print(f"⚠️ Chưa thể nạp mô hình best.pt: {e}")
 else:
     print(f"⚠️ Không tìm thấy file model tại {MODEL_PATH}")
-
-
-# -------------------------------------------------------------------
-# HELPER FUNCTIONS
-# -------------------------------------------------------------------
 
 def run_yolo_inference(image: Image.Image) -> tuple[str, float]:
     """Hàm dự đoán bằng file best.pt"""

@@ -14,7 +14,7 @@ from ultralytics import YOLO
 
 app = FastAPI(title="Trash2Treasure Vision Hybrid Backend")
 
-# Cấu hình CORS cho phép mọi nguồn gọi vào (hoặc đổi thành domain Vercel của bạn)
+# Cấu hình CORS cho phép mọi nguồn gọi vào
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,7 +67,6 @@ def generate_local_slm_diy(waste_type: str, is_kids: bool, is_en: bool) -> dict:
     """Sinh ý tưởng DIY an toàn không bị chết khi chạy trên Cloud (Railway)"""
     ollama_url = "http://localhost:11434/api/generate"
     
-    # Payload kiểm tra nhanh nếu chạy local có ollama
     payload = {
         "model": "qwen2.5:1.5b", 
         "prompt": f"Generate 1 creative DIY project for '{waste_type}' in RAW JSON format.", 
@@ -77,14 +76,13 @@ def generate_local_slm_diy(waste_type: str, is_kids: bool, is_en: bool) -> dict:
     try:
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(ollama_url, data=data, headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(req, timeout=1) as response: # Timeout cực nhanh 1s để không bị nghẽn mạng trên Cloud
+        with urllib.request.urlopen(req, timeout=1) as response:
             res_body = json.loads(response.read().decode('utf-8'))
             raw_res = res_body.get("response", "").strip()
             if "```json" in raw_res: 
                 raw_res = raw_res.split("```json")[1].split("```")[0].strip()
             return json.loads(raw_res)
     except Exception:
-        # Fallback an toàn 100% trên Cloud khi không tìm thấy Ollama
         return {
             "title": f"Chậu cây mini từ {waste_type}" if not is_en else f"Mini Planter from {waste_type}",
             "desc": "Dự án tái chế sáng tạo và hữu ích tại nhà" if not is_en else "Simple and creative indoor recycling project",
@@ -97,6 +95,33 @@ def generate_local_slm_diy(waste_type: str, is_kids: bool, is_en: bool) -> dict:
                 "Trang trí và sử dụng." if not is_en else "Decorate and use."
             ]
         }
+
+
+# =====================================================================
+# ENDPOINT MỚI: CHUYÊN DỤNG CHO AR SCANNER (SIÊU TỐC BẰNG YOLO)
+# =====================================================================
+@app.post("/api/ar-detect")
+async def ar_detect_waste(file: UploadFile = File(...)):
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
+    
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        
+        detected_waste, confidence = run_yolo_inference(image)
+        
+        if detected_waste == "Unknown Waste" or confidence < 0.4:
+            return {"has_waste": False}
+            
+        return {
+            "has_waste": True,
+            "waste_type": detected_waste,
+            "category": "Tái chế",
+            "confidence": round(confidence, 2)
+        }
+    except Exception as e:
+        return {"has_waste": False, "error": str(e)}
 
 
 @app.post("/api/analyze")
@@ -115,7 +140,7 @@ async def analyze_waste_image(
         is_en = lang.lower() == "en"
 
         # -------------------------------------------------------------
-        # BRANCH 1: ONLINE (Gemini Cloud)
+        # BRANCH 1: ONLINE (Gemini Cloud) - Dành cho phân tích DIY chi tiết
         # -------------------------------------------------------------
         if client:
             try:
@@ -150,7 +175,6 @@ RULES:
 KIDS MODE ({is_kids}): {'NO sharp/dangerous tools.' if is_kids else 'Standard tools.'}
 """
 
-                # Sử dụng chuẩn model Gemini phổ biến hiện tại trên Cloud
                 response = client.models.generate_content(
                     model='gemini-3.6-flash',
                     contents=[image, prompt],

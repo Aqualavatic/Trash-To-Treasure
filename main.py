@@ -27,25 +27,41 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 MODEL_PATH = "models/best.pt"
-yolo_model = None
+# Chuyển đổi link Google Drive của bạn sang định dạng tải xuống trực tiếp (Direct Download)
+DRIVE_FILE_ID = "1nRQm38RBGMv2Rp-hBs8tZTzuoXhQKT69"
+MODEL_URL = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
 
-if os.path.exists(MODEL_PATH):
+os.makedirs("models", exist_ok=True)
+
+# Tự động tải model từ Google Drive về server nếu chưa có hoặc file bị lỗi
+if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 1024 * 1024:
+    print("📥 Đang tải mô hình best.pt từ Google Drive về server...")
+    try:
+        opener = urllib.request.build_opener()
+        opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
+        urllib.request.install_opener(opener)
+        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+        print("✅ Tải mô hình thành công từ Google Drive!")
+    except Exception as e:
+        print(f"⚠️ Không thể tải mô hình: {e}")
+
+yolo_model = None
+if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 1024 * 1024:
     try:
         yolo_model = YOLO(MODEL_PATH)
         print("✅ Đã load thành công mô hình best.pt (YOLO)!")
     except Exception as e:
         print(f"⚠️ Chưa thể nạp mô hình best.pt: {e}")
 else:
-    print(f"⚠️ Không tìm thấy file model tại {MODEL_PATH}")
+    print(f"⚠️ File model tại {MODEL_PATH} chưa sẵn sàng.")
 
 
 def run_yolo_inference_live(image: Image.Image) -> dict:
-    """Hàm dự đoán trả về nhãn, độ tự tin, tọa độ bounding box và gợi ý live"""
     if not yolo_model:
         return {"has_waste": False}
 
     img_width, img_height = image.size
-    results = yolo_model(image, conf=0.5)
+    results = yolo_model(image, conf=0.4)
     
     best_box = None
     max_conf = 0.0
@@ -59,16 +75,14 @@ def run_yolo_inference_live(image: Image.Image) -> dict:
                 class_id = int(box.cls[0])
                 best_label = yolo_model.names[class_id]
                 xyxy = box.xyxy[0].tolist()
-                # Chuyển tọa độ sang phần trăm (%) để hiển thị linh hoạt trên mọi màn hình
                 best_box = [
-                    round((xyxy[1] / img_height) * 100, 1), # ymin
-                    round((xyxy[0] / img_width) * 100, 1),  # xmin
-                    round((xyxy[3] / img_height) * 100, 1), # ymax
-                    round((xyxy[2] / img_width) * 100, 1)   # xmax
+                    round((xyxy[1] / img_height) * 100, 1),
+                    round((xyxy[0] / img_width) * 100, 1),
+                    round((xyxy[3] / img_height) * 100, 1),
+                    round((xyxy[2] / img_width) * 100, 1)
                 ]
 
     if best_label and best_box:
-        # Gợi ý hướng dẫn nhanh hiển thị trực tiếp trên AR
         quick_guides = {
             "Plastic Bottle": "Rửa sạch -> Cắt làm chậu cây mini 🌱",
             "Can": "Ép bẹp -> Cho vào thùng tái chế ♻️",

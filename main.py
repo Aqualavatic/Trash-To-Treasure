@@ -35,7 +35,7 @@ os.makedirs("models", exist_ok=True)
 # CƠ CHẾ ÉP BUỘC TẢI LẠI MODEL TỪ HUGGING FACE
 # -------------------------------------------------------------
 # Đặt biến này là True nếu muốn chắc chắn xóa bản cũ và tải lại bản mới từ Hugging Face
-force_download = True 
+force_download = False 
 
 if force_download or not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 1024 * 1024:
     if os.path.exists(MODEL_PATH):

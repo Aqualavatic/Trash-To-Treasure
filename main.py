@@ -27,21 +27,20 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 MODEL_PATH = "models/best.pt"
-# Chuyển đổi link Google Drive của bạn sang định dạng tải xuống trực tiếp (Direct Download)
-DRIVE_FILE_ID = "1nRQm38RBGMv2Rp-hBs8tZTzuoXhQKT69"
-MODEL_URL = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
+# Cập nhật link tải trực tiếp từ Hugging Face
+MODEL_URL = "https://huggingface.co/Aqualavatic/UpcycleDIY-YOLO/resolve/main/best.pt"
 
 os.makedirs("models", exist_ok=True)
 
-# Tự động tải model từ Google Drive về server nếu chưa có hoặc file bị lỗi
+# Tự động tải model từ Hugging Face về server nếu chưa có hoặc file bị lỗi
 if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 1024 * 1024:
-    print("📥 Đang tải mô hình best.pt từ Google Drive về server...")
+    print("📥 Đang tải mô hình best.pt từ Hugging Face về server...")
     try:
         opener = urllib.request.build_opener()
         opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
         urllib.request.install_opener(opener)
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-        print("✅ Tải mô hình thành công từ Google Drive!")
+        print("✅ Tải mô hình thành công từ Hugging Face!")
     except Exception as e:
         print(f"⚠️ Không thể tải mô hình: {e}")
 
@@ -159,7 +158,7 @@ RULES:
 }}
 """
                 response = client.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=[image, prompt],
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )

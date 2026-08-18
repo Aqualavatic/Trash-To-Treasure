@@ -31,34 +31,39 @@ MODEL_URL = "https://huggingface.co/Aqualavatic/UpcycleDIY-YOLO/resolve/main/bes
 
 os.makedirs("models", exist_ok=True)
 
-# Ép buộc tải lại hoặc kiểm tra file model
-# Nếu bạn muốn mỗi lần deploy nó đều tải mới từ Hugging Face, có thể bỏ qua điều kiện tồn tại hoặc kiểm tra dung lượng
-force_download = False # Đổi thành True nếu bạn muốn ép buộc tải lại mỗi khi restart server
+# -------------------------------------------------------------
+# CƠ CHẾ ÉP BUỘC TẢI LẠI MODEL TỪ HUGGING FACE
+# -------------------------------------------------------------
+# Đặt biến này là True nếu muốn chắc chắn xóa bản cũ và tải lại bản mới từ Hugging Face
+force_download = True 
 
 if force_download or not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 1024 * 1024:
     if os.path.exists(MODEL_PATH):
-        print("🗑️ Đang xóa file mô hình cũ để tải bản mới từ Hugging Face...")
-        os.remove(MODEL_PATH)
-        
-    print("📥 Đang tải mô hình best.pt mới từ Hugging Face về server...")
+        print("🗑️ Phát hiện file mô hình cũ. Đang tiến hành xóa để tải bản mới từ Hugging Face...")
+        try:
+            os.remove(MODEL_PATH)
+        except Exception as e:
+            print(f"⚠️ Không thể xóa file cũ: {e}")
+
+    print("📥 Đang bắt đầu tải mô hình best.pt mới từ Hugging Face về server...")
     try:
         opener = urllib.request.build_opener()
         opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
         urllib.request.install_opener(opener)
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-        print("✅ Tải và cập nhật mô hình thành công từ Hugging Face!")
+        print("✅ Tải mô hình mới thành công từ Hugging Face!")
     except Exception as e:
-        print(f"⚠️ Không thể tải mô hình: {e}")
+        print(f"❌ Lỗi tải mô hình từ Hugging Face: {e}")
 
 yolo_model = None
 if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 1024 * 1024:
     try:
         yolo_model = YOLO(MODEL_PATH)
-        print("✅ Đã load thành công mô hình best.pt (YOLO)!")
+        print("✅ Đã load thành công mô hình best.pt (YOLO) lên RAM/GPU!")
     except Exception as e:
         print(f"⚠️ Chưa thể nạp mô hình best.pt: {e}")
 else:
-    print(f"⚠️ File model tại {MODEL_PATH} chưa sẵn sàng.")
+    print(f"⚠️ File model tại {MODEL_PATH} không tồn tại hoặc bị lỗi dung lượng.")
 
 
 def run_yolo_inference_live(image: Image.Image) -> dict:

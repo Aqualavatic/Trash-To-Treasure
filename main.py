@@ -44,7 +44,7 @@ def run_yolo_inference_live(image: Image.Image) -> dict:
 
     img_width, img_height = image.size
     # Nâng độ tin cậy lên 0.5 để AI lọc bỏ kết quả nhiễu, chuẩn xác hơn
-    results = yolo_model(image, conf=0.5)
+    results = yolo_model(image, conf=0.8)
     
     best_box = None
     max_conf = 0.0

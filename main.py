@@ -43,7 +43,8 @@ def run_yolo_inference_live(image: Image.Image) -> dict:
         return {"has_waste": False}
 
     img_width, img_height = image.size
-    results = yolo_model(image, conf=0.4)
+    # Nâng độ tin cậy lên 0.5 để AI lọc bỏ kết quả nhiễu, chuẩn xác hơn
+    results = yolo_model(image, conf=0.5)
     
     best_box = None
     max_conf = 0.0
@@ -53,25 +54,52 @@ def run_yolo_inference_live(image: Image.Image) -> dict:
         for box in r.boxes:
             conf = float(box.conf[0])
             if conf > max_conf:
+                xyxy = box.xyxy[0].tolist()
+                ymin, xmin, ymax, xmax = xyxy[1], xyxy[0], xyxy[3], xyxy[2]
+                
+                # Tính toán kích thước box theo % màn hình để chống lỗi box oversize che kín màn hình
+                box_w_pct = ((xmax - xmin) / img_width) * 100
+                box_h_pct = ((ymax - ymin) / img_height) * 100
+
+                if box_w_pct > 85 or box_h_pct > 85:
+                    continue
+
                 max_conf = conf
                 class_id = int(box.cls[0])
                 best_label = yolo_model.names[class_id]
-                xyxy = box.xyxy[0].tolist()
                 best_box = [
-                    round((xyxy[1] / img_height) * 100, 1),
-                    round((xyxy[0] / img_width) * 100, 1),
-                    round((xyxy[3] / img_height) * 100, 1),
-                    round((xyxy[2] / img_width) * 100, 1)
+                    round((ymin / img_height) * 100, 1),
+                    round((xmin / img_width) * 100, 1),
+                    round((ymax / img_height) * 100, 1),
+                    round((xmax / img_width) * 100, 1)
                 ]
 
     if best_label and best_box:
         quick_guides = {
-            "Plastic Bottle": "Rửa sạch -> Cắt làm chậu cây mini 🌱",
-            "Can": "Ép bẹp -> Cho vào thùng tái chế ♻️",
-            "Cardboard": "Gấp gọn -> Làm thủ công sáng tạo 📦",
-            "Glass": "Tái sử dụng làm lọ hoa trang trí 🏺"
+            "Plastic Bottle": {
+                "guide": "Rửa sạch, cắt đôi phần thân -> Làm chậu cây mini 🌱",
+                "materials": ["Chai nhựa", "Kéo", "Đất & Hạt giống"]
+            },
+            "Can": {
+                "guide": "Ép bẹp hoặc làm sạch -> Làm ống cắm bút sáng tạo ✏️",
+                "materials": ["Lon nhôm", "Giấy màu", "Keo dán"]
+            },
+            "Cardboard": {
+                "guide": "Gấp gọn hoặc cắt tấm bìa -> Làm hộp đựng đồ 📦",
+                "materials": ["Bìa carton", "Dao rọc giấy", "Keo nến"]
+            },
+            "Glass": {
+                "guide": "Rửa sạch, quấn dây thừng -> Làm lọ hoa trang trí 🏺",
+                "materials": ["Chai thủy tinh", "Dây thừng", "Keo nến"]
+            }
         }
-        guide_text = quick_guides.get(best_label, "Làm sạch và phân loại rác tái chế ♻️")
+
+        default_info = {
+            "guide": "Làm sạch và phân loại đúng quy định ♻️",
+            "materials": ["Vật liệu tái chế", "Dụng cụ cơ bản"]
+        }
+
+        item_info = quick_guides.get(best_label, default_info)
 
         return {
             "has_waste": True,
@@ -79,7 +107,8 @@ def run_yolo_inference_live(image: Image.Image) -> dict:
             "category": "Rác tái chế",
             "confidence": round(max_conf, 2),
             "box": best_box,
-            "quick_guide": guide_text
+            "quick_guide": item_info["guide"],
+            "materials": item_info["materials"]
         }
 
     return {"has_waste": False}
@@ -121,7 +150,7 @@ You are a recycling AI. Analyze this image.
 {language_instruction}
 RULES:
 1. If no waste/recyclable detected:
-   Return JSON: {{"has_waste": false, "message": "No waste detected."}}
+    Return JSON: {{"has_waste": false, "message": "No waste detected."}}
 2. If waste found, return JSON:
 {{
   "has_waste": true,

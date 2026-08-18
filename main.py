@@ -27,20 +27,26 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 MODEL_PATH = "models/best.pt"
-# Cập nhật link tải trực tiếp từ Hugging Face
 MODEL_URL = "https://huggingface.co/Aqualavatic/UpcycleDIY-YOLO/resolve/main/best.pt"
 
 os.makedirs("models", exist_ok=True)
 
-# Tự động tải model từ Hugging Face về server nếu chưa có hoặc file bị lỗi
-if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 1024 * 1024:
-    print("📥 Đang tải mô hình best.pt từ Hugging Face về server...")
+# Ép buộc tải lại hoặc kiểm tra file model
+# Nếu bạn muốn mỗi lần deploy nó đều tải mới từ Hugging Face, có thể bỏ qua điều kiện tồn tại hoặc kiểm tra dung lượng
+force_download = False # Đổi thành True nếu bạn muốn ép buộc tải lại mỗi khi restart server
+
+if force_download or not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 1024 * 1024:
+    if os.path.exists(MODEL_PATH):
+        print("🗑️ Đang xóa file mô hình cũ để tải bản mới từ Hugging Face...")
+        os.remove(MODEL_PATH)
+        
+    print("📥 Đang tải mô hình best.pt mới từ Hugging Face về server...")
     try:
         opener = urllib.request.build_opener()
         opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
         urllib.request.install_opener(opener)
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-        print("✅ Tải mô hình thành công từ Hugging Face!")
+        print("✅ Tải và cập nhật mô hình thành công từ Hugging Face!")
     except Exception as e:
         print(f"⚠️ Không thể tải mô hình: {e}")
 

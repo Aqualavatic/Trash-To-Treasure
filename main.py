@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 from inference_sdk import InferenceHTTPClient
 
-app = FastAPI(title="Trash2Treasure Vision Hybrid Backend with Roboflow AR")
+app = FastAPI(title="Trash2Treasure Vision Hybrid Backend with Roboflow AR & Gemini 3.6")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,7 +30,7 @@ ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# Khởi tạo Roboflow Client cho AR Model ("coco/50")
+# Khởi tạo Roboflow Client cho AR Model (COCO / 50)
 roboflow_client = None
 if ROBOFLOW_API_KEY:
     try:
@@ -38,18 +38,18 @@ if ROBOFLOW_API_KEY:
             api_url="https://serverless.roboflow.com",
             api_key=ROBOFLOW_API_KEY
         )
-        print("✅ Đã kết nối thành công với Roboflow Serverless API!")
+        print("✅ Đã kết nối thành công với Roboflow Serverless API (COCO Model)!")
     except Exception as e:
         print(f"⚠️ Không thể khởi tạo Roboflow Client: {e}")
 else:
-    print("⚠️ Cảnh báo: ROBOFLOW_API_KEY chưa được thiết lập trong biến môi trường!")
+    print("⚠️ Cảnh báo: ROBOFLOW_API_KEY chưa được thiết lập!")
 
 
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    Endpoint AR Scanner: Sử dụng mô hình COCO từ Roboflow để detect nhiều vật thể 
-    và kết hợp Gemini để tạo ý tưởng DIY động.
+    Endpoint AR Scanner: Sử dụng mô hình COCO (Roboflow) detect nhiều vật thể 
+    và kết hợp Gemini 3.6 Flash tạo ý tưởng DIY động.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -70,7 +70,6 @@ async def ar_detect_waste(file: UploadFile = File(...)):
             img_w, img_h = image.size
             detected_objects = []
 
-            # Duyệt qua tất cả các vật thể được phát hiện trên màn hình (Multi-object detection)
             for pred in response["predictions"]:
                 x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
                 xmin = max(0, x - w / 2)
@@ -88,7 +87,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                 waste_label = pred["class"]
                 confidence = round(float(pred["confidence"]), 2)
 
-                # Sinh ý tưởng DIY động bằng Gemini cho từng vật thể nếu có thể
+                # Sử dụng Gemini 3.6 Flash sinh ý tưởng DIY động cho vật thể
                 diy_ideas_list = []
                 if client:
                     try:
@@ -102,7 +101,6 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     except Exception:
                         pass
 
-                # Fallback nếu Gemini không phản hồi kịp
                 if not diy_ideas_list:
                     diy_ideas_list = [
                         {"id": "1", "title": f"Tái chế {waste_label} sáng tạo", "description": "Làm sạch và tái sử dụng cho mục đích thủ công."},
@@ -118,8 +116,8 @@ async def ar_detect_waste(file: UploadFile = File(...)):
 
             return {
                 "has_waste": True,
-                "objects": detected_objects, # Trợ giúp hiển thị nhiều vật thể
-                "waste_type": detected_objects[0]["waste_type"], # Tương thích ngược
+                "objects": detected_objects,
+                "waste_type": detected_objects[0]["waste_type"],
                 "confidence": detected_objects[0]["confidence"],
                 "diy_ideas": detected_objects[0]["diy_ideas"]
             }
@@ -147,7 +145,7 @@ async def analyze_waste_image(
         is_kids = children_mode.lower() == "true"
         is_en = lang.lower() == "en"
 
-        # 1. Ưu tiên gọi Gemini Cloud Online
+        # 1. Gọi Gemini 3.6 Flash Cloud Online
         if client:
             try:
                 language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
@@ -181,17 +179,17 @@ RULES:
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 result_json = json.loads(response.text)
-                result_json["engine"] = "Gemini Cloud Online"
+                result_json["engine"] = "Gemini 3.6 Flash Cloud"
                 return result_json
             except Exception as e:
-                print(f"⚠️ Gemini bận/lỗi ({e}). Chuyển sang Roboflow Fallback...")
+                print(f"⚠️ Gemini lỗi ({e}). Chuyển sang Roboflow Fallback...")
 
-        # 2. Fallback qua Roboflow nếu Gemini lỗi
+        # 2. Fallback qua Roboflow
         if roboflow_client:
             temp_path = "temp_analyze.jpg"
             image.save(temp_path)
             try:
-                response = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+                response = roboflow_client.infer(temp_path, model_id="coco/50")
                 if "predictions" in response and len(response["predictions"]) > 0:
                     pred = response["predictions"][0]
                     waste_name = pred["class"]
@@ -209,7 +207,7 @@ RULES:
                             "materials": [waste_name, "Kéo", "Keo dán"],
                             "steps": ["Làm sạch vật liệu", "Cắt dán tạo hình"]
                         }],
-                        "engine": "Roboflow Serverless Cloud API"
+                        "engine": "Roboflow COCO API Fallback"
                     }
             except Exception as e:
                 print(f"Lỗi Roboflow analyze: {e}")
@@ -227,4 +225,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Trash2Treasure Server Active with Roboflow AR Engine"}
+    return {"status": "ok", "message": "Trash2Treasure Server Active with Gemini 3.6 Flash & COCO AR"}

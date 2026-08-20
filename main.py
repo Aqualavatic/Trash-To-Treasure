@@ -94,7 +94,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     try:
                         prompt = f"Suggest 3 creative DIY recycling ideas for '{waste_label}'. Return JSON format as an array of objects with keys: 'id', 'title', 'description' in Vietnamese."
                         gemini_res = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.6-flash',
                             contents=prompt,
                             config=types.GenerateContentConfig(response_mime_type="application/json")
                         )
@@ -176,7 +176,7 @@ RULES:
 }}
 """
                 response = client.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[image, prompt],
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )

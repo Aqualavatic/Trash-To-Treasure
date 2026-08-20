@@ -4,12 +4,14 @@ import os
 from PIL import Image
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 from ultralytics import YOLO
+from inference_sdk import InferenceHTTPClient
 
-# Khởi tạo FastAPI
-app = FastAPI(title="Trash2Treasure Intel OpenVINO Hybrid Backend")
+app = FastAPI(title="Trash2Treasure Vision Hybrid Backend with Roboflow AR")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,143 +22,98 @@ app.add_middleware(
 )
 
 load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
-# --- KHỞI TẠO INTEL OPENVINO & YOLO ---
-MODEL_PATH = "models/best.pt"
-yolo_model = None
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-try:
-    # 1. Load model YOLO gốc
-    base_model = YOLO(MODEL_PATH)
-    
-    # 2. Xuất (Export) sang định dạng OpenVINO IR để tăng tốc tối đa trên phần cứng Intel (CPU/GPU)
-    # Lệnh này sẽ tự động tạo thư mục best_openvino_model/
-    ov_model_dir = MODEL_PATH.replace(".pt", "_openvino_model")
-    if not os.path.exists(ov_model_dir):
-        print("🔄 Đang chuyển đổi model YOLO sang Intel OpenVINO IR format...")
-        base_model.export(format="openvino", int8=False) # Có thể bật int8=True nếu muốn tối ưu lượng tử hóa
-    
-    # 3. Load lại mô hình đã tối ưu bằng OpenVINO Runtime
-    yolo_model = YOLO(ov_model_dir)
-    print("✅ Đã load và tăng tốc mô hình thành công với Intel OpenVINO Runtime!")
-except Exception as e:
-    print(f"⚠️ Không thể khởi tạo OpenVINO YOLO, fallback về mô hình chuẩn: {e}")
-    if os.path.exists(MODEL_PATH):
-        yolo_model = YOLO(MODEL_PATH)
+# Khởi tạo Roboflow Client cho AR Model ("waste-detection-vqkjo/3")
+roboflow_client = None
+if ROBOFLOW_API_KEY:
+    try:
+        roboflow_client = InferenceHTTPClient(
+            api_url="https://serverless.roboflow.com",
+            api_key=ROBOFLOW_API_KEY
+        )
+        print("✅ Đã kết nối thành công với Roboflow Serverless API!")
+    except Exception as e:
+        print(f"⚠️ Không thể khởi tạo Roboflow Client: {e}")
 
-# --- KHỞI TẠO OPENVINO GENAI (LOCAL LLM) ---
-# Dùng thư viện openvino_genai để chạy các mô hình ngôn ngữ nhỏ gọn offline (như Phi-3, TinyLlama,...)
-ov_genai_pipeline = None
-try:
-    import openvino_genai as ov_genai
-    # Đường dẫn thư mục chứa LLM đã được export sang OpenVINO (ví dụ: models/phi3_mini_ov)
-    OV_GENAI_MODEL_PATH = "models/openvino_llm_model" 
-    
-    if os.path.exists(OV_GENAI_MODEL_PATH):
-        ov_genai_pipeline = ov_genai.LLMPipeline(OV_GENAI_MODEL_PATH, "CPU")
-        print("✅ Đã khởi tạo thành công Intel OpenVINO GenAI Pipeline!")
-    else:
-        print("ℹ️ Chưa tìm thấy thư mục OpenVINO GenAI model, sẽ dùng cơ chế thông minh dự phòng.")
-except Exception as e:
-    print(f"⚠️ OpenVINO GenAI chưa sẵn sàng (có thể cài thiếu thư viện hoặc chưa tải model LLM): {e}")
-
-
-def run_yolo_inference_live(image: Image.Image) -> dict:
-    if not yolo_model:
-        return {"has_waste": False}
-
-    img_width, img_height = image.size
-    # Dùng OpenVINO Runtime YOLO với ngưỡng confidence cao
-    results = yolo_model(image, conf=0.7)
-    
-    best_box = None
-    max_conf = 0.0
-    best_label = ""
-
-    for r in results:
-        for box in r.boxes:
-            conf = float(box.conf[0])
-            if conf > max_conf:
-                xyxy = box.xyxy[0].tolist()
-                ymin, xmin, ymax, xmax = xyxy[1], xyxy[0], xyxy[3], xyxy[2]
-                
-                box_w_pct = ((xmax - xmin) / img_width) * 100
-                box_h_pct = ((ymax - ymin) / img_height) * 100
-
-                # Chống box quá khổ
-                if box_w_pct > 85 or box_h_pct > 85:
-                    continue
-
-                max_conf = conf
-                class_id = int(box.cls[0])
-                best_label = yolo_model.names[class_id]
-                best_box = [
-                    round((ymin / img_height) * 100, 1),
-                    round((xmin / img_width) * 100, 1),
-                    round((ymax / img_height) * 100, 1),
-                    round((xmax / img_width) * 100, 1)
-                ]
-
-    # NẾU CONFIDENCE THẤP HOẶC KHÔNG TÌM THẤY -> KÍCH HOẠT OPENVINO GENAI FALLBACK
-    if not best_label or max_conf < 0.75:
-        if ov_genai_pipeline:
-            # Dùng OpenVINO GenAI để phân tích ngữ cảnh sâu hơn (nếu có tích hợp VLM/LLM local)
-            prompt = "Analyze image context for recycling and DIY ideas."
-            # Code gọi openvino_genai sinh text (tùy thuộc vào model bạn chọn)
-            # response_text = ov_genai_pipeline.generate(prompt, max_new_tokens=200)
-            pass
-
-    if best_label and best_box:
-        quick_guides = {
-            "Plastic Bottle": {
-                "guide": "Rửa sạch, cắt đôi phần thân -> Làm chậu cây mini 🌱",
-                "materials": ["Chai nhựa", "Kéo", "Đất & Hạt giống"]
-            },
-            "Can": {
-                "guide": "Ép bẹp hoặc làm sạch -> Làm ống cắm bút sáng tạo ✏️",
-                "materials": ["Lon nhôm", "Giấy màu", "Keo dán"]
-            },
-            "Cardboard": {
-                "guide": "Gấp gọn hoặc cắt tấm bìa -> Làm hộp đựng đồ 📦",
-                "materials": ["Bìa carton", "Dao rọc giấy", "Keo nến"]
-            },
-            "Glass": {
-                "guide": "Rửa sạch, quấn dây thừng -> Làm lọ hoa trang trí 🏺",
-                "materials": ["Chai thủy tinh", "Dây thừng", "Keo nến"]
-            }
-        }
-
-        default_info = {
-            "guide": "Làm sạch và phân loại đúng quy định ♻️",
-            "materials": ["Vật liệu tái chế", "Dụng cụ cơ bản"]
-        }
-
-        item_info = quick_guides.get(best_label, default_info)
-
-        return {
-            "has_waste": True,
-            "waste_type": best_label,
-            "category": "Rác tái chế (Intel OpenVINO Accelerated)",
-            "confidence": round(max_conf, 2),
-            "box": best_box,
-            "quick_guide": item_info["guide"],
-            "materials": item_info["materials"]
-        }
-
-    return {"has_waste": False}
+# ==========================================
+# 🛑 CODE YOLO LOCAL (ĐÃ TẠM VÔ HIỆU HÓA - DISABLED TEMPORARY)
+# ==========================================
+# MODEL_PATH = "models/best.pt"
+# yolo_model = None
+# if os.path.exists(MODEL_PATH):
+#     try:
+#         yolo_model = YOLO(MODEL_PATH)
+#         print("✅ Đã load thành công mô hình best.pt (YOLO) từ local!")
+#     except Exception as e:
+#         print(f"⚠️ Chưa thể nạp mô hình best.pt: {e}")
+# 
+# def run_yolo_inference_live(image: Image.Image) -> dict:
+#     """Hàm YOLO cũ đã bị disable theo yêu cầu, giữ lại để tham khảo"""
+#     return {"has_waste": False}
+# ==========================================
 
 
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
+    """
+    Endpoint AR Scanner: Sử dụng hoàn toàn Roboflow Cloud Model (waste-detection-vqkjo/3)
+    """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
     
+    if not roboflow_client:
+        return {"has_waste": False, "error": "Roboflow API Key chưa được cấu hình trong .env"}
+
+    temp_path = "temp_ar_frame.jpg"
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
-        return run_yolo_inference_live(image)
+        image.save(temp_path)
+
+        # Gọi mô hình Object Detection trên Roboflow Serverless Cloud API
+        response = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+
+        if "predictions" in response and len(response["predictions"]) > 0:
+            pred = response["predictions"][0] # Lấy vật thể có độ tự tin cao nhất
+            img_w, img_h = image.size
+            
+            # Tính toán tọa độ hộp bao (bounding box) theo % màn hình
+            x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
+            xmin = max(0, x - w / 2)
+            ymin = max(0, y - h / 2)
+            xmax = min(img_w, x + w / 2)
+            ymax = min(img_h, y + h / 2)
+
+            box_pct = [
+                round((ymin / img_h) * 100, 1),
+                round((xmin / img_w) * 100, 1),
+                round((ymax / img_h) * 100, 1),
+                round((xmax / img_w) * 100, 1)
+            ]
+
+            waste_label = pred["class"]
+            confidence = round(float(pred["confidence"]), 2)
+
+            return {
+                "has_waste": True,
+                "waste_type": waste_label,
+                "category": "Rác tái chế",
+                "confidence": confidence,
+                "box": box_pct,
+                "quick_guide": f"Phân loại và tái chế {waste_label} sáng tạo ♻️",
+                "materials": [waste_label, "Dụng cụ cơ bản"]
+            }
+
+        return {"has_waste": False}
     except Exception as e:
         return {"has_waste": False, "error": str(e)}
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 @app.post("/api/analyze")
@@ -174,31 +131,79 @@ async def analyze_waste_image(
         is_kids = children_mode.lower() == "true"
         is_en = lang.lower() == "en"
 
-        # Ưu tiên sử dụng Intel OpenVINO GenAI nếu chạy offline, nếu không có thể fallback thông minh
-        if ov_genai_pipeline:
+        # 1. Ưu tiên gọi Gemini Cloud Online
+        if client:
             try:
-                # Xử lý sinh nội dung DIY bằng OpenVINO GenAI Local Model tại đây
-                pass
+                language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
+                prompt = f"""
+You are a recycling AI. Analyze this image.
+{language_instruction}
+RULES:
+1. If no waste/recyclable detected:
+    Return JSON: {{"has_waste": false, "message": "No waste detected."}}
+2. If waste found, return JSON:
+{{
+  "has_waste": true,
+  "waste_type": "Name of waste",
+  "category": "Recyclable / Non-recyclable",
+  "instructions": ["Step 1 sort", "Step 2 clean"],
+  "diy_ideas": [
+    {{
+      "title": "DIY Title",
+      "desc": "Short description",
+      "difficulty": "{'Super Easy' if is_kids else 'Easy'}",
+      "time": "15 mins",
+      "materials": ["Tool 1", "Tool 2"],
+      "steps": ["Step 1 details", "Step 2 details"]
+    }}
+  ]
+}}
+"""
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=[image, prompt],
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                result_json = json.loads(response.text)
+                result_json["engine"] = "Gemini Cloud Online"
+                return result_json
             except Exception as e:
-                print(f"⚠️ OpenVINO GenAI gặp lỗi: {e}")
+                print(f"⚠️ Gemini bận/lỗi ({e}). Chuyển sang Roboflow Fallback...")
 
-        # Kết quả phản hồi chuẩn qua hệ thống Edge AI của Intel
-        detected_waste, confidence = "Plastic Bottle", 0.92
+        # 2. Fallback qua Roboflow nếu Gemini lỗi
+        if roboflow_client:
+            temp_path = "temp_analyze.jpg"
+            image.save(temp_path)
+            try:
+                response = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+                if "predictions" in response and len(response["predictions"]) > 0:
+                    pred = response["predictions"][0]
+                    waste_name = pred["class"]
+                    return {
+                        "has_waste": True,
+                        "waste_type": waste_name,
+                        "confidence": round(float(pred["confidence"]), 2),
+                        "category": "Recyclable",
+                        "instructions": ["Làm sạch vật liệu"],
+                        "diy_ideas": [{
+                            "title": f"Sáng tạo từ {waste_name}",
+                            "desc": "Dự án tái chế thông minh",
+                            "difficulty": "Dễ",
+                            "time": "15 mins",
+                            "materials": [waste_name, "Kéo", "Keo dán"],
+                            "steps": ["Làm sạch vật liệu", "Cắt dán tạo hình"]
+                        }],
+                        "engine": "Roboflow Serverless Cloud API"
+                    }
+            except Exception as e:
+                print(f"Lỗi Roboflow analyze: {e}")
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
         return {
-            "has_waste": True,
-            "waste_type": detected_waste,
-            "confidence": confidence,
-            "category": "Recyclable",
-            "instructions": ["Làm sạch vật liệu theo chuẩn Intel Edge AI"],
-            "diy_ideas": [{
-                "title": f"Chậu cây sáng tạo từ {detected_waste}",
-                "desc": "Dự án tái chế thông minh tăng tốc bằng OpenVINO",
-                "difficulty": "Dễ",
-                "time": "15 mins",
-                "materials": [detected_waste, "Kéo", "Dụng cụ cắt"],
-                "steps": ["Làm sạch", "Cắt tỉa", "Trồng cây"]
-            }],
-            "engine": "Intel OpenVINO Runtime & GenAI Edge Engine"
+            "has_waste": False,
+            "message": "Không phát hiện rác thải phù hợp."
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -206,4 +211,4 @@ async def analyze_waste_image(
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Trash2Treasure Intel OpenVINO Server Active"}
+    return {"status": "ok", "message": "Trash2Treasure Server Active with Roboflow AR Engine"}

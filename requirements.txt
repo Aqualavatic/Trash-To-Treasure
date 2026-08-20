@@ -10,3 +10,5 @@ openvino
 openvino-genai
 inference-sdk
 huggingface_hub
+transformers
+torch

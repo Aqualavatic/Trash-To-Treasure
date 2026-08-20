@@ -6,6 +6,7 @@ python-multipart>=0.0.6
 ultralytics>=8.0.0
 python-dotenv>=1.0.0
 optimum[openvino]
+openvino
 openvino-genai
 inference-sdk
 huggingface_hub

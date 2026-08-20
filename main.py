@@ -2,7 +2,6 @@ import io
 import json
 import os
 
-# Khắc phục warning thư mục cấu hình của Ultralytics trên cloud
 os.environ['YOLO_CONFIG_DIR'] = '/tmp/Ultralytics'
 
 from PIL import Image
@@ -14,7 +13,7 @@ from dotenv import load_dotenv
 
 from inference_sdk import InferenceHTTPClient
 
-app = FastAPI(title="UpcycleDIY Hybrid Backend (COCO AR + Gemini 3.6 + Offline YOLO)")
+app = FastAPI(title="UpcycleDIY Hybrid Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,7 +29,6 @@ ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# Khởi tạo Roboflow Client (dùng cho COCO AR online và YOLO offline fallback)
 roboflow_client = None
 if ROBOFLOW_API_KEY:
     try:
@@ -38,7 +36,7 @@ if ROBOFLOW_API_KEY:
             api_url="https://serverless.roboflow.com",
             api_key=ROBOFLOW_API_KEY
         )
-        print("✅ Kết nối Roboflow thành công (Sẵn sàng cho COCO AR & Offline Fallback)!")
+        print("✅ Kết nối Roboflow thành công!")
     except Exception as e:
         print(f"⚠️ Lỗi khởi tạo Roboflow Client: {e}")
 
@@ -46,10 +44,9 @@ if ROBOFLOW_API_KEY:
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    AR-SCANNER ENDPOINT:
-    - Sử dụng COCO model trên Roboflow để detect object theo thời gian thực.
-    - Sử dụng Gemini 3.6 Flash để verify kết quả và generate ý tưởng DIY động.
-    - Fallback về mô hình YOLO/COCO cơ bản khi offline.
+    AR-SCANNER ENDPOINT: 
+    - Detect toàn bộ vật thể trong khung hình.
+    - Gom nhóm các vật thể lại và yêu cầu Gemini 3.6 sáng tạo món đồ DIY kết hợp từ chính các vật thể đó.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -63,20 +60,16 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         predictions = []
         is_offline_mode = False
 
-        # Bước 1: Thử gọi COCO model qua Roboflow (Online)
         if roboflow_client:
             try:
                 response = roboflow_client.infer(temp_path, model_id="coco/50")
                 if "predictions" in response:
                     predictions = response["predictions"]
-            except Exception as e:
-                print(f"⚠️ Mất kết nối mạng! Kích hoạt chế độ Offline YOLO Fallback: {e}")
+            except Exception:
                 is_offline_mode = True
 
-        # Bước 2: Nếu mạng lỗi (Offline), chuyển hoàn toàn sang dùng mô hình YOLO dự phòng
         if is_offline_mode and roboflow_client:
             try:
-                # Gọi model YOLO chuyên dụng cho rác khi offline
                 offline_res = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
                 if "predictions" in offline_res:
                     predictions = offline_res["predictions"]
@@ -86,6 +79,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         if len(predictions) > 0:
             img_w, img_h = image.size
             detected_objects = []
+            all_labels = []
 
             for pred in predictions:
                 x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
@@ -103,42 +97,44 @@ async def ar_detect_waste(file: UploadFile = File(...)):
 
                 raw_label = pred["class"]
                 confidence = round(float(pred["confidence"]), 2)
-
-                # Bước 3: Sử dụng Gemini 3.6 Flash sinh ý tưởng DIY động cho AR (nếu không offline hoàn toàn)
-                diy_ideas_list = []
-                if client and not is_offline_mode:
-                    try:
-                        prompt = f"Verify object '{raw_label}' and suggest 3 creative DIY recycling ideas in Vietnamese. Return strictly a JSON array with keys: 'id', 'title', 'description'."
-                        gemini_res = client.models.generate_content(
-                            model='gemini-3.6-flash',
-                            contents=prompt,
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
-                        )
-                        diy_ideas_list = json.loads(gemini_res.text)
-                    except Exception:
-                        pass
-
-                # Fallback ý tưởng DIY nếu offline hoặc Gemini bận
-                if not diy_ideas_list:
-                    diy_ideas_list = [
-                        {"id": "1", "title": f"Tái chế {raw_label} làm chậu cây", "description": "Làm sạch và đục lỗ thoát nước cơ bản."},
-                        {"id": "2", "title": f"Làm ống cắm bút từ {raw_label}", "description": "Trang trí màu sắc để đựng dụng cụ học tập."},
-                        {"id": "3", "title": f"Mô hình sáng tạo với {raw_label}", "description": "Kết hợp keo dán tạo hình thủ công độc đáo."}
-                    ]
+                all_labels.append(raw_label)
 
                 detected_objects.append({
                     "waste_type": raw_label,
                     "confidence": confidence,
-                    "box": box_pct,
-                    "diy_ideas": diy_ideas_list
+                    "box": box_pct
                 })
+
+            # Gom tất cả các vật thể quét được gửi cho Gemini 3.6 tạo ý tưởng kết hợp chung
+            combined_diy_ideas = []
+            if client and not is_offline_mode:
+                try:
+                    unique_items = ", ".join(set(all_labels))
+                    prompt = f"""I detected these multiple items together in a room/frame: [{unique_items}]. 
+Combine these materials together to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
+Return strictly a JSON array of objects with keys: 'id', 'title', 'description' in Vietnamese."""
+                    
+                    gemini_res = client.models.generate_content(
+                        model='gemini-3.6-flash',
+                        contents=prompt,
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    combined_diy_ideas = json.loads(gemini_res.text)
+                except Exception:
+                    pass
+
+            if not combined_diy_ideas:
+                combined_diy_ideas = [
+                    {"id": "1", "title": "Bộ dụng cụ học tập kết hợp", "description": "Tận dụng các vật liệu vừa quét để làm hộp đựng bút đa năng."},
+                    {"id": "2", "title": "Mô hình thủ công tổng hợp", "description": "Gắn kết các vật thể lại với nhau bằng keo dán thành mô hình trang trí."}
+                ]
 
             return {
                 "has_waste": True,
                 "objects": detected_objects,
-                "waste_type": detected_objects[0]["waste_type"],
+                "waste_type": ", ".join(set(all_labels)),
                 "confidence": detected_objects[0]["confidence"],
-                "diy_ideas": detected_objects[0]["diy_ideas"]
+                "diy_ideas": combined_diy_ideas
             }
 
         return {"has_waste": False, "message": "Không phát hiện vật thể phù hợp qua AR."}
@@ -155,11 +151,6 @@ async def analyze_waste_image(
     children_mode: str = Form("false"),
     lang: str = Form("vi")
 ):
-    """
-    UPLOAD ENDPOINT:
-    - Gemini 3.6 Flash đảm nhận khi Online.
-    - Tuyệt đối chỉ dùng YOLO/COCO làm fallback khi Offline.
-    """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
 
@@ -169,7 +160,6 @@ async def analyze_waste_image(
         is_kids = children_mode.lower() == "true"
         is_en = lang.lower() == "en"
 
-        # 1. Gemini 3.6 Flash (Online Mode)
         if client:
             try:
                 language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
@@ -205,9 +195,8 @@ RULES:
                 result_json["engine"] = "Gemini 3.6 Flash Cloud"
                 return result_json
             except Exception as e:
-                print(f"⚠️ Gemini 3.6 bận/mất mạng. Chuyển sang Offline YOLO Fallback...")
+                print(f"⚠️ Gemini 3.6 lỗi. Chuyển sang Offline YOLO Fallback...")
 
-        # 2. YOLO/COCO Fallback (CHỈ CHẠY KHI OFFLINE)
         if roboflow_client:
             temp_path = "temp_offline_upload.jpg"
             image.save(temp_path)
@@ -248,4 +237,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "UpcycleDIY Hybrid Server Active (COCO AR + Gemini 3.6 + Offline YOLO)"}
+    return {"status": "ok", "message": "UpcycleDIY Hybrid Server Active"}

@@ -30,7 +30,7 @@ ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# Khởi tạo Roboflow Client cho AR Model ("waste-detection-vqkjo/3")
+# Khởi tạo Roboflow Client cho AR Model ("coco/50")
 roboflow_client = None
 if ROBOFLOW_API_KEY:
     try:
@@ -63,7 +63,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         image.save(temp_path)
 
         # Gọi mô hình Object Detection trên Roboflow Serverless Cloud API
-        response = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+        response = roboflow_client.infer(temp_path, model_id="coco/50")
 
         if "predictions" in response and len(response["predictions"]) > 0:
             pred = response["predictions"][0] # Lấy vật thể có độ tự tin cao nhất

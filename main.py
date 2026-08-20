@@ -62,7 +62,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
 
         if roboflow_client:
             try:
-                response = roboflow_client.infer(temp_path, model_id="coco/50")
+                response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in response:
                     predictions = response["predictions"]
             except Exception:
@@ -70,7 +70,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
 
         if is_offline_mode and roboflow_client:
             try:
-                offline_res = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+                offline_res = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in offline_res:
                     predictions = offline_res["predictions"]
             except Exception:

@@ -48,13 +48,14 @@ else:
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    Endpoint AR Scanner: Sử dụng hoàn toàn Roboflow Cloud Model (waste-detection-vqkjo/3)
+    Endpoint AR Scanner: Sử dụng mô hình COCO từ Roboflow để detect nhiều vật thể 
+    và kết hợp Gemini để tạo ý tưởng DIY động.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
     
     if not roboflow_client:
-        return {"has_waste": False, "error": "Roboflow API Key chưa được cấu hình trong Environment Variables của Railway"}
+        return {"has_waste": False, "error": "Roboflow API Key chưa được cấu hình"}
 
     temp_path = "temp_ar_frame.jpg"
     try:
@@ -62,58 +63,65 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         image.save(temp_path)
 
-        # Gọi mô hình Object Detection trên Roboflow Serverless Cloud API
+        # Gọi mô hình COCO trên Roboflow Cloud API
         response = roboflow_client.infer(temp_path, model_id="coco/50")
 
         if "predictions" in response and len(response["predictions"]) > 0:
-            pred = response["predictions"][0] # Lấy vật thể có độ tự tin cao nhất
             img_w, img_h = image.size
-            
-            # Tính toán tọa độ hộp bao (bounding box) theo % màn hình
-            x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
-            xmin = max(0, x - w / 2)
-            ymin = max(0, y - h / 2)
-            xmax = min(img_w, x + w / 2)
-            ymax = min(img_h, y + h / 2)
+            detected_objects = []
 
-            box_pct = [
-                round((ymin / img_h) * 100, 1),
-                round((xmin / img_w) * 100, 1),
-                round((ymax / img_h) * 100, 1),
-                round((xmax / img_w) * 100, 1)
-            ]
+            # Duyệt qua tất cả các vật thể được phát hiện trên màn hình (Multi-object detection)
+            for pred in response["predictions"]:
+                x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
+                xmin = max(0, x - w / 2)
+                ymin = max(0, y - h / 2)
+                xmax = min(img_w, x + w / 2)
+                ymax = min(img_h, y + h / 2)
 
-            waste_label = pred["class"]
-            confidence = round(float(pred["confidence"]), 2)
+                box_pct = [
+                    round((ymin / img_h) * 100, 1),
+                    round((xmin / img_w) * 100, 1),
+                    round((ymax / img_h) * 100, 1),
+                    round((xmax / img_w) * 100, 1)
+                ]
 
-            # Danh sách ý tưởng DIY trả về cho giao diện
-            diy_ideas_list = [
-                {
-                    "id": "1",
-                    "title": f"Làm chậu cây mini từ {waste_label}",
-                    "description": f"Rửa sạch, cắt phần thân {waste_label} và đục lỗ thoát nước."
-                },
-                {
-                    "id": "2",
-                    "title": f"Làm ống cắm bút sáng tạo",
-                    "description": f"Dùng giấy màu trang trí xung quanh {waste_label} để đựng bút."
-                },
-                {
-                    "id": "3",
-                    "title": f"Đồ trang trí handmade",
-                    "description": f"Kết hợp {waste_label} với các vật liệu khác để tạo điểm nhấn."
-                }
-            ]
+                waste_label = pred["class"]
+                confidence = round(float(pred["confidence"]), 2)
+
+                # Sinh ý tưởng DIY động bằng Gemini cho từng vật thể nếu có thể
+                diy_ideas_list = []
+                if client:
+                    try:
+                        prompt = f"Suggest 3 creative DIY recycling ideas for '{waste_label}'. Return JSON format as an array of objects with keys: 'id', 'title', 'description' in Vietnamese."
+                        gemini_res = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=prompt,
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                        )
+                        diy_ideas_list = json.loads(gemini_res.text)
+                    except Exception:
+                        pass
+
+                # Fallback nếu Gemini không phản hồi kịp
+                if not diy_ideas_list:
+                    diy_ideas_list = [
+                        {"id": "1", "title": f"Tái chế {waste_label} sáng tạo", "description": "Làm sạch và tái sử dụng cho mục đích thủ công."},
+                        {"id": "2", "title": f"Trang trí đồ vật từ {waste_label}", "description": "Biến tấu thành vật dụng trang trí góc học tập."}
+                    ]
+
+                detected_objects.append({
+                    "waste_type": waste_label,
+                    "confidence": confidence,
+                    "box": box_pct,
+                    "diy_ideas": diy_ideas_list
+                })
 
             return {
                 "has_waste": True,
-                "waste_type": waste_label,
-                "category": "Rác tái chế",
-                "confidence": confidence,
-                "box": box_pct,
-                "quick_guide": f"Phân loại và tái chế {waste_label} sáng tạo ♻️",
-                "materials": [waste_label, "Dụng cụ cơ bản"],
-                "diy_ideas": diy_ideas_list
+                "objects": detected_objects, # Trợ giúp hiển thị nhiều vật thể
+                "waste_type": detected_objects[0]["waste_type"], # Tương thích ngược
+                "confidence": detected_objects[0]["confidence"],
+                "diy_ideas": detected_objects[0]["diy_ideas"]
             }
 
         return {"has_waste": False}

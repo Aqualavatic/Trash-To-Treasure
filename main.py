@@ -112,8 +112,13 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     unique_items = ", ".join(set(all_labels))
                     prompt = f"""I detected these multiple items together in a room/frame: [{unique_items}]. 
 Combine these materials together to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
-Return strictly a JSON array of objects with keys: 'id', 'title', 'description' in Vietnamese."""
-                    
+Return strictly a JSON array of objects with keys: 
+- 'id' (string)
+- 'title' (string)
+- 'description' (string)
+- 'materials' (array of strings: danh sách vật dụng/dụng cụ cần chuẩn bị, ví dụ: ["kéo", "bút chì", "vỏ chai"])
+- 'steps' (array of strings: các bước thực hiện chi tiết, ví dụ bước 1 gọi tên vật dụng cần dùng như "Chuẩn bị kéo và vỏ chai")
+In Vietnamese."""
                     gemini_res = client.models.generate_content(
                         model='gemini-3.6-flash',
                         contents=prompt,

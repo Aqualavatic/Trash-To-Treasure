@@ -44,9 +44,9 @@ if ROBOFLOW_API_KEY:
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    AR-SCANNER ENDPOINT: 
+    AR-SCANNER ENDPOINT (YOLO-World / Instance Segmentation Model): 
     - Detect toàn bộ vật thể trong khung hình.
-    - Gom nhóm các vật thể lại và yêu cầu Gemini 3.6 sáng tạo món đồ DIY kết hợp từ chính các vật thể đó.
+    - Gom nhóm các vật thể lại và yêu cầu Gemini 3.6 sáng tạo món đồ DIY kết hợp.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -105,7 +105,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     "box": box_pct
                 })
 
-            # Gom tất cả các vật thể quét được gửi cho Gemini 3.6 tạo ý tưởng kết hợp chung
+            # Gom tất cả các vật thể quét được gửi cho Gemini 3.6 tạo ý tưởng kết hợp chung kèm steps chi tiết
             combined_diy_ideas = []
             if client and not is_offline_mode:
                 try:
@@ -116,8 +116,8 @@ Return strictly a JSON array of objects with keys:
 - 'id' (string)
 - 'title' (string)
 - 'description' (string)
-- 'materials' (array of strings: danh sách vật dụng/dụng cụ cần chuẩn bị, ví dụ: ["kéo", "bút chì", "vỏ chai"])
-- 'steps' (array of strings: các bước thực hiện chi tiết, ví dụ bước 1 gọi tên vật dụng cần dùng như "Chuẩn bị kéo và vỏ chai")
+- 'materials' (array of strings: danh sách vật dụng/dụng cụ cần chuẩn bị)
+- 'steps' (array of strings: các bước thực hiện chi tiết cho từng bước hướng dẫn tương tác)
 In Vietnamese."""
                     gemini_res = client.models.generate_content(
                         model='gemini-3.6-flash',
@@ -130,8 +130,20 @@ In Vietnamese."""
 
             if not combined_diy_ideas:
                 combined_diy_ideas = [
-                    {"id": "1", "title": "Bộ dụng cụ học tập kết hợp", "description": "Tận dụng các vật liệu vừa quét để làm hộp đựng bút đa năng."},
-                    {"id": "2", "title": "Mô hình thủ công tổng hợp", "description": "Gắn kết các vật thể lại với nhau bằng keo dán thành mô hình trang trí."}
+                    {
+                        "id": "1", 
+                        "title": "Bộ dụng cụ học tập kết hợp", 
+                        "description": "Tận dụng các vật liệu vừa quét để làm hộp đựng bút đa năng.",
+                        "materials": ["Vật liệu quét được", "Kéo", "Keo dán"],
+                        "steps": ["Chuẩn bị vật liệu sạch sẽ", "Cắt dán tạo hình hộp bút", "Trang trí hoàn thiện"]
+                    },
+                    {
+                        "id": "2", 
+                        "title": "Mô hình thủ công tổng hợp", 
+                        "description": "Gắn kết các vật thể lại với nhau bằng keo dán thành mô hình trang trí.",
+                        "materials": ["Vật liệu quét được", "Keo nến"],
+                        "steps": ["Xếp bố cục các vật thể", "Cố định bằng keo", "Trưng bày sản phẩm"]
+                    }
                 ]
 
             return {
@@ -156,6 +168,11 @@ async def analyze_waste_image(
     children_mode: str = Form("false"),
     lang: str = Form("vi")
 ):
+    """
+    UPLOAD ENDPOINT:
+    - Gemini 3.6 Flash đảm nhận phân tích chuyên sâu khi Online.
+    - YOLO Fallback khi Offline.
+    """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
 
@@ -206,7 +223,7 @@ RULES:
             temp_path = "temp_offline_upload.jpg"
             image.save(temp_path)
             try:
-                response = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+                response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in response and len(response["predictions"]) > 0:
                     pred = response["predictions"][0]
                     waste_name = pred["class"]
@@ -242,4 +259,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "UpcycleDIY Hybrid Server Active"}
+    return {"status": "ok", "message": "UpcycleDIY Hybrid Server Active (YOLO-World/Segmentation AR + Gemini 3.6 Upload)"}

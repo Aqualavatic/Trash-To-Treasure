@@ -1,6 +1,10 @@
 import io
 import json
 import os
+
+# Khắc phục warning thư mục cấu hình của Ultralytics trên môi trường cloud (Railway)
+os.environ['YOLO_CONFIG_DIR'] = '/tmp/Ultralytics'
+
 from PIL import Image
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +12,6 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-from ultralytics import YOLO
 from inference_sdk import InferenceHTTPClient
 
 app = FastAPI(title="Trash2Treasure Vision Hybrid Backend with Roboflow AR")
@@ -38,23 +41,8 @@ if ROBOFLOW_API_KEY:
         print("✅ Đã kết nối thành công với Roboflow Serverless API!")
     except Exception as e:
         print(f"⚠️ Không thể khởi tạo Roboflow Client: {e}")
-
-# ==========================================
-# 🛑 CODE YOLO LOCAL (ĐÃ TẠM VÔ HIỆU HÓA - DISABLED TEMPORARY)
-# ==========================================
-# MODEL_PATH = "models/best.pt"
-# yolo_model = None
-# if os.path.exists(MODEL_PATH):
-#     try:
-#         yolo_model = YOLO(MODEL_PATH)
-#         print("✅ Đã load thành công mô hình best.pt (YOLO) từ local!")
-#     except Exception as e:
-#         print(f"⚠️ Chưa thể nạp mô hình best.pt: {e}")
-# 
-# def run_yolo_inference_live(image: Image.Image) -> dict:
-#     """Hàm YOLO cũ đã bị disable theo yêu cầu, giữ lại để tham khảo"""
-#     return {"has_waste": False}
-# ==========================================
+else:
+    print("⚠️ Cảnh báo: ROBOFLOW_API_KEY chưa được thiết lập trong biến môi trường!")
 
 
 @app.post("/api/ar-detect")
@@ -66,7 +54,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
     
     if not roboflow_client:
-        return {"has_waste": False, "error": "Roboflow API Key chưa được cấu hình trong .env"}
+        return {"has_waste": False, "error": "Roboflow API Key chưa được cấu hình trong Environment Variables của Railway"}
 
     temp_path = "temp_ar_frame.jpg"
     try:

@@ -98,6 +98,25 @@ async def ar_detect_waste(file: UploadFile = File(...)):
             waste_label = pred["class"]
             confidence = round(float(pred["confidence"]), 2)
 
+            # Danh sách ý tưởng DIY trả về cho giao diện
+            diy_ideas_list = [
+                {
+                    "id": "1",
+                    "title": f"Làm chậu cây mini từ {waste_label}",
+                    "description": f"Rửa sạch, cắt phần thân {waste_label} và đục lỗ thoát nước."
+                },
+                {
+                    "id": "2",
+                    "title": f"Làm ống cắm bút sáng tạo",
+                    "description": f"Dùng giấy màu trang trí xung quanh {waste_label} để đựng bút."
+                },
+                {
+                    "id": "3",
+                    "title": f"Đồ trang trí handmade",
+                    "description": f"Kết hợp {waste_label} với các vật liệu khác để tạo điểm nhấn."
+                }
+            ]
+
             return {
                 "has_waste": True,
                 "waste_type": waste_label,
@@ -105,7 +124,8 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                 "confidence": confidence,
                 "box": box_pct,
                 "quick_guide": f"Phân loại và tái chế {waste_label} sáng tạo ♻️",
-                "materials": [waste_label, "Dụng cụ cơ bản"]
+                "materials": [waste_label, "Dụng cụ cơ bản"],
+                "diy_ideas": diy_ideas_list
             }
 
         return {"has_waste": False}

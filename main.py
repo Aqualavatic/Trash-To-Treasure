@@ -2,7 +2,7 @@ import io
 import json
 import os
 
-# Khắc phục warning thư mục cấu hình của Ultralytics trên môi trường cloud (Railway)
+# Khắc phục warning thư mục cấu hình của Ultralytics trên cloud
 os.environ['YOLO_CONFIG_DIR'] = '/tmp/Ultralytics'
 
 from PIL import Image
@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 from inference_sdk import InferenceHTTPClient
 
-app = FastAPI(title="Trash2Treasure Vision Hybrid Backend with Roboflow AR & Gemini 3.6")
+app = FastAPI(title="UpcycleDIY Hybrid Backend (COCO AR + Gemini 3.6 + Offline YOLO)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,7 +30,7 @@ ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# Khởi tạo Roboflow Client cho AR Model (COCO / 50)
+# Khởi tạo Roboflow Client (dùng cho COCO AR online và YOLO offline fallback)
 roboflow_client = None
 if ROBOFLOW_API_KEY:
     try:
@@ -38,39 +38,56 @@ if ROBOFLOW_API_KEY:
             api_url="https://serverless.roboflow.com",
             api_key=ROBOFLOW_API_KEY
         )
-        print("✅ Đã kết nối thành công với Roboflow Serverless API (COCO Model)!")
+        print("✅ Kết nối Roboflow thành công (Sẵn sàng cho COCO AR & Offline Fallback)!")
     except Exception as e:
-        print(f"⚠️ Không thể khởi tạo Roboflow Client: {e}")
-else:
-    print("⚠️ Cảnh báo: ROBOFLOW_API_KEY chưa được thiết lập!")
+        print(f"⚠️ Lỗi khởi tạo Roboflow Client: {e}")
 
 
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    Endpoint AR Scanner: Sử dụng mô hình COCO (Roboflow) detect nhiều vật thể 
-    và kết hợp Gemini 3.6 Flash tạo ý tưởng DIY động.
+    AR-SCANNER ENDPOINT:
+    - Sử dụng COCO model trên Roboflow để detect object theo thời gian thực.
+    - Sử dụng Gemini 3.6 Flash để verify kết quả và generate ý tưởng DIY động.
+    - Fallback về mô hình YOLO/COCO cơ bản khi offline.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
     
-    if not roboflow_client:
-        return {"has_waste": False, "error": "Roboflow API Key chưa được cấu hình"}
-
     temp_path = "temp_ar_frame.jpg"
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         image.save(temp_path)
 
-        # Gọi mô hình COCO trên Roboflow Cloud API
-        response = roboflow_client.infer(temp_path, model_id="coco/50")
+        predictions = []
+        is_offline_mode = False
 
-        if "predictions" in response and len(response["predictions"]) > 0:
+        # Bước 1: Thử gọi COCO model qua Roboflow (Online)
+        if roboflow_client:
+            try:
+                response = roboflow_client.infer(temp_path, model_id="coco/50")
+                if "predictions" in response:
+                    predictions = response["predictions"]
+            except Exception as e:
+                print(f"⚠️ Mất kết nối mạng! Kích hoạt chế độ Offline YOLO Fallback: {e}")
+                is_offline_mode = True
+
+        # Bước 2: Nếu mạng lỗi (Offline), chuyển hoàn toàn sang dùng mô hình YOLO dự phòng
+        if is_offline_mode and roboflow_client:
+            try:
+                # Gọi model YOLO chuyên dụng cho rác khi offline
+                offline_res = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
+                if "predictions" in offline_res:
+                    predictions = offline_res["predictions"]
+            except Exception:
+                pass
+
+        if len(predictions) > 0:
             img_w, img_h = image.size
             detected_objects = []
 
-            for pred in response["predictions"]:
+            for pred in predictions:
                 x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
                 xmin = max(0, x - w / 2)
                 ymin = max(0, y - h / 2)
@@ -84,14 +101,14 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     round((xmax / img_w) * 100, 1)
                 ]
 
-                waste_label = pred["class"]
+                raw_label = pred["class"]
                 confidence = round(float(pred["confidence"]), 2)
 
-                # Sử dụng Gemini 3.6 Flash sinh ý tưởng DIY động cho vật thể
+                # Bước 3: Sử dụng Gemini 3.6 Flash sinh ý tưởng DIY động cho AR (nếu không offline hoàn toàn)
                 diy_ideas_list = []
-                if client:
+                if client and not is_offline_mode:
                     try:
-                        prompt = f"Suggest 3 creative DIY recycling ideas for '{waste_label}'. Return JSON format as an array of objects with keys: 'id', 'title', 'description' in Vietnamese."
+                        prompt = f"Verify object '{raw_label}' and suggest 3 creative DIY recycling ideas in Vietnamese. Return strictly a JSON array with keys: 'id', 'title', 'description'."
                         gemini_res = client.models.generate_content(
                             model='gemini-3.6-flash',
                             contents=prompt,
@@ -101,14 +118,16 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     except Exception:
                         pass
 
+                # Fallback ý tưởng DIY nếu offline hoặc Gemini bận
                 if not diy_ideas_list:
                     diy_ideas_list = [
-                        {"id": "1", "title": f"Tái chế {waste_label} sáng tạo", "description": "Làm sạch và tái sử dụng cho mục đích thủ công."},
-                        {"id": "2", "title": f"Trang trí đồ vật từ {waste_label}", "description": "Biến tấu thành vật dụng trang trí góc học tập."}
+                        {"id": "1", "title": f"Tái chế {raw_label} làm chậu cây", "description": "Làm sạch và đục lỗ thoát nước cơ bản."},
+                        {"id": "2", "title": f"Làm ống cắm bút từ {raw_label}", "description": "Trang trí màu sắc để đựng dụng cụ học tập."},
+                        {"id": "3", "title": f"Mô hình sáng tạo với {raw_label}", "description": "Kết hợp keo dán tạo hình thủ công độc đáo."}
                     ]
 
                 detected_objects.append({
-                    "waste_type": waste_label,
+                    "waste_type": raw_label,
                     "confidence": confidence,
                     "box": box_pct,
                     "diy_ideas": diy_ideas_list
@@ -122,7 +141,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                 "diy_ideas": detected_objects[0]["diy_ideas"]
             }
 
-        return {"has_waste": False}
+        return {"has_waste": False, "message": "Không phát hiện vật thể phù hợp qua AR."}
     except Exception as e:
         return {"has_waste": False, "error": str(e)}
     finally:
@@ -136,6 +155,11 @@ async def analyze_waste_image(
     children_mode: str = Form("false"),
     lang: str = Form("vi")
 ):
+    """
+    UPLOAD ENDPOINT:
+    - Gemini 3.6 Flash đảm nhận khi Online.
+    - Tuyệt đối chỉ dùng YOLO/COCO làm fallback khi Offline.
+    """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
 
@@ -145,30 +169,29 @@ async def analyze_waste_image(
         is_kids = children_mode.lower() == "true"
         is_en = lang.lower() == "en"
 
-        # 1. Gọi Gemini 3.6 Flash Cloud Online
+        # 1. Gemini 3.6 Flash (Online Mode)
         if client:
             try:
                 language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
                 prompt = f"""
-You are a recycling AI. Analyze this image.
+You are an advanced UpcycleDIY AI. Analyze this image.
 {language_instruction}
 RULES:
-1. If no waste/recyclable detected:
-    Return JSON: {{"has_waste": false, "message": "No waste detected."}}
+1. If no waste detected: Return JSON: {{"has_waste": false, "message": "No waste detected."}}
 2. If waste found, return JSON:
 {{
   "has_waste": true,
   "waste_type": "Name of waste",
   "category": "Recyclable / Non-recyclable",
-  "instructions": ["Step 1 sort", "Step 2 clean"],
+  "instructions": ["Step 1", "Step 2"],
   "diy_ideas": [
     {{
       "title": "DIY Title",
       "desc": "Short description",
       "difficulty": "{'Super Easy' if is_kids else 'Easy'}",
       "time": "15 mins",
-      "materials": ["Tool 1", "Tool 2"],
-      "steps": ["Step 1 details", "Step 2 details"]
+      "materials": ["Tool 1"],
+      "steps": ["Steps details"]
     }}
   ]
 }}
@@ -182,14 +205,14 @@ RULES:
                 result_json["engine"] = "Gemini 3.6 Flash Cloud"
                 return result_json
             except Exception as e:
-                print(f"⚠️ Gemini lỗi ({e}). Chuyển sang Roboflow Fallback...")
+                print(f"⚠️ Gemini 3.6 bận/mất mạng. Chuyển sang Offline YOLO Fallback...")
 
-        # 2. Fallback qua Roboflow
+        # 2. YOLO/COCO Fallback (CHỈ CHẠY KHI OFFLINE)
         if roboflow_client:
-            temp_path = "temp_analyze.jpg"
+            temp_path = "temp_offline_upload.jpg"
             image.save(temp_path)
             try:
-                response = roboflow_client.infer(temp_path, model_id="coco/50")
+                response = roboflow_client.infer(temp_path, model_id="waste-detection-vqkjo/3")
                 if "predictions" in response and len(response["predictions"]) > 0:
                     pred = response["predictions"][0]
                     waste_name = pred["class"]
@@ -197,27 +220,27 @@ RULES:
                         "has_waste": True,
                         "waste_type": waste_name,
                         "confidence": round(float(pred["confidence"]), 2),
-                        "category": "Recyclable",
-                        "instructions": ["Làm sạch vật liệu"],
+                        "category": "Rác tái chế (Offline Mode)",
+                        "instructions": ["Làm sạch vật liệu trước khi tái chế"],
                         "diy_ideas": [{
-                            "title": f"Sáng tạo từ {waste_name}",
-                            "desc": "Dự án tái chế thông minh",
+                            "title": f"Ý tưởng nhanh từ {waste_name}",
+                            "desc": "Dự án thủ công cơ bản",
                             "difficulty": "Dễ",
-                            "time": "15 mins",
-                            "materials": [waste_name, "Kéo", "Keo dán"],
-                            "steps": ["Làm sạch vật liệu", "Cắt dán tạo hình"]
+                            "time": "10 mins",
+                            "materials": [waste_name, "Kéo", "Keo"],
+                            "steps": ["Vệ sinh sạch sẽ", "Cắt dán tạo hình"]
                         }],
-                        "engine": "Roboflow COCO API Fallback"
+                        "engine": "YOLO Offline Fallback Engine"
                     }
-            except Exception as e:
-                print(f"Lỗi Roboflow analyze: {e}")
+            except Exception as ex:
+                print(f"Lỗi Offline Fallback Upload: {ex}")
             finally:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
 
         return {
             "has_waste": False,
-            "message": "Không phát hiện rác thải phù hợp."
+            "message": "Không thể kết nối AI và không tìm thấy vật thể."
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -225,4 +248,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Trash2Treasure Server Active with Gemini 3.6 Flash & COCO AR"}
+    return {"status": "ok", "message": "UpcycleDIY Hybrid Server Active (COCO AR + Gemini 3.6 + Offline YOLO)"}

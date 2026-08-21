@@ -32,11 +32,12 @@ client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 roboflow_client = None
 if ROBOFLOW_API_KEY:
     try:
+        # Sử dụng Roboflow Inference Client (Bạn có thể đổi model_id sang YOLO-World của Roboflow nếu muốn)
         roboflow_client = InferenceHTTPClient(
             api_url="https://serverless.roboflow.com",
             api_key=ROBOFLOW_API_KEY
         )
-        print("✅ Kết nối Roboflow thành công!")
+        print("✅ Kết nối Roboflow/YOLO-World thành công!")
     except Exception as e:
         print(f"⚠️ Lỗi khởi tạo Roboflow Client: {e}")
 
@@ -44,9 +45,8 @@ if ROBOFLOW_API_KEY:
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    AR-SCANNER ENDPOINT:
-    - Bước 1: Dùng YOLO / Roboflow (Model Coco/Instance Segmentation) quét nhanh vật thể trong khung hình.
-    - Bước 2: Dùng Gemini MỘT LẦN DUY NHẤT để lập ý tưởng DIY, dụng cụ và chia bước chi tiết dựa trên các vật thể vừa quét.
+    AR-SCANNER ENDPOINT (YOLO / YOLO-World via Roboflow): 
+    - Chuyên nhận diện vị trí bounding box real-time cực nhanh không gọi Gemini liên tục.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -60,85 +60,47 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         predictions = []
         if roboflow_client:
             try:
+                # Sử dụng model coco hoặc model YOLO-World đã cấu hình trên Roboflow
                 response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in response:
                     predictions = response["predictions"]
             except Exception as e:
-                print(f"⚠️ Lỗi Roboflow AR: {e}")
+                print(f"⚠️ Lỗi gọi mô hình AR: {e}")
 
-        if len(predictions) > 0:
-            img_w, img_h = image.size
-            detected_objects = []
-            all_labels = []
+        img_w, img_h = image.size
+        detected_objects = []
+        all_labels = []
 
-            for pred in predictions:
-                x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
-                xmin = max(0, x - w / 2)
-                ymin = max(0, y - h / 2)
-                xmax = min(img_w, x + w / 2)
-                ymax = min(img_h, y + h / 2)
+        for pred in predictions:
+            x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
+            xmin = max(0, x - w / 2)
+            ymin = max(0, y - h / 2)
+            xmax = min(img_w, x + w / 2)
+            ymax = min(img_h, y + h / 2)
 
-                box_pct = [
-                    round((ymin / img_h) * 100, 1),
-                    round((xmin / img_w) * 100, 1),
-                    round((ymax / img_h) * 100, 1),
-                    round((xmax / img_w) * 100, 1)
-                ]
+            box_pct = [
+                round((ymin / img_h) * 100, 1),
+                round((xmin / img_w) * 100, 1),
+                round((ymax / img_h) * 100, 1),
+                round((xmax / img_w) * 100, 1)
+            ]
 
-                raw_label = pred["class"]
-                confidence = round(float(pred["confidence"]), 2)
-                all_labels.append(raw_label)
+            raw_label = pred["class"]
+            confidence = round(float(pred["confidence"]), 2)
+            all_labels.append(raw_label)
 
-                detected_objects.append({
-                    "waste_type": raw_label,
-                    "confidence": confidence,
-                    "box": box_pct
-                })
+            detected_objects.append({
+                "waste_type": raw_label,
+                "confidence": confidence,
+                "box": box_pct
+            })
 
-            combined_diy_ideas = []
-            if client:
-                try:
-                    unique_items = ", ".join(set(all_labels))
-                    prompt = f"""I detected these multiple items together in a room/frame using computer vision: [{unique_items}]. 
-Combine these materials to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
-Return strictly a JSON array of objects with keys: 
-- 'id' (string)
-- 'title' (string)
-- 'description' (string)
-- 'materials' (array of strings: danh sách dụng cụ/vật liệu cần dùng)
-- 'steps' (array of strings: các bước thao tác chi tiết, trong đó mỗi bước nên nhắc rõ tên vật dụng hoặc hành động để hệ thống camera verify)
-In Vietnamese."""
-                    
-                    gemini_res = client.models.generate_content(
-                        model='gemini-3.6-flash',
-                        contents=prompt,
-                        config=types.GenerateContentConfig(response_mime_type="application/json")
-                    )
-                    combined_diy_ideas = json.loads(gemini_res.text)
-                except Exception as e:
-                    print(f"⚠️ Lỗi Gemini sinh ý tưởng AR: {e}")
-
-            if not combined_diy_ideas:
-                combined_diy_ideas = [
-                    {
-                        "id": "1",
-                        "title": "Hộp đựng bút tái chế đa năng",
-                        "description": "Kết hợp các vật liệu vừa quét để làm hộp đựng dụng cụ học tập.",
-                        "materials": ["Vật liệu quét", "Kéo", "Keo dán"],
-                        "steps": [
-                            "Chuẩn bị các vật liệu sạch sẽ trước mặt camera.",
-                            "Sử dụng kéo để cắt gọt định hình vật liệu.",
-                            "Dùng keo cố định các bộ phận lại với nhau."
-                        ]
-                    }
-                ]
-
+        if len(detected_objects) > 0:
             return {
                 "has_waste": True,
                 "objects": detected_objects,
                 "waste_type": ", ".join(set(all_labels)),
-                "confidence": detected_objects[0]["confidence"],
-                "diy_ideas": combined_diy_ideas
+                "confidence": detected_objects[0]["confidence"]
             }
 
         return {"has_waste": False, "message": "Không phát hiện vật thể qua AR."}
@@ -149,6 +111,45 @@ In Vietnamese."""
             os.remove(temp_path)
 
 
+@app.post("/api/generate-diy-options")
+async def generate_diy_options(
+    file: UploadFile = File(...),
+    items: str = Form(...)
+):
+    """
+    ENDPOINT NÀY CHỈ GỌI MỘT LẦN KHI SNAP ẢNH:
+    - Nhận danh sách các vật thể được YOLO quét ổn định và hình ảnh đã snap.
+    - Gửi sang Gemini 3.6 Flash để tạo ra 3 options kèm theo chi tiết dụng cụ và các bước tương tác.
+    """
+    if not client:
+        raise HTTPException(status_code=500, detail="Gemini Client chưa được khởi tạo!")
+
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        
+        prompt = f"""I detected these stable items in the camera frame: [{items}]. 
+Combine these materials together to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
+Return strictly a JSON array of objects with keys: 
+- 'id' (string)
+- 'title' (string)
+- 'description' (string)
+- 'materials' (array of strings: danh sách vật dụng/dụng cụ cần chuẩn bị)
+- 'steps' (array of strings: các bước thực hiện chi tiết để hệ thống kiểm tra tương tác từng bước)
+In Vietnamese."""
+
+        response = client.models.generate_content(
+            model='gemini-3.6-flash',
+            contents=[image, prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        
+        diy_ideas = json.loads(response.text)
+        return {"success": True, "diy_ideas": diy_ideas}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/analyze")
 async def analyze_waste_image(
     file: UploadFile = File(...),
@@ -156,7 +157,7 @@ async def analyze_waste_image(
     lang: str = Form("vi")
 ):
     """
-    UPLOAD ENDPOINT: Chuyên biệt cho Gemini 3.6 Flash phân tích ảnh tĩnh chi tiết.
+    UPLOAD ENDPOINT: Gemini 3.6 Flash phân tích chuyên sâu ảnh tải lên.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -168,9 +169,8 @@ async def analyze_waste_image(
         is_en = lang.lower() == "en"
 
         if client:
-            try:
-                language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
-                prompt = f"""
+            language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
+            prompt = f"""
 You are an advanced UpcycleDIY AI. Analyze this image.
 {language_instruction}
 RULES:
@@ -193,25 +193,20 @@ RULES:
   ]
 }}
 """
-                response = client.models.generate_content(
-                    model='gemini-3.6-flash',
-                    contents=[image, prompt],
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                result_json = json.loads(response.text)
-                result_json["engine"] = "Gemini 3.6 Flash Cloud"
-                return result_json
-            except Exception as e:
-                print(f"⚠️ Lỗi Gemini Upload: {e}")
+            response = client.models.generate_content(
+                model='gemini-3.6-flash',
+                contents=[image, prompt],
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            result_json = json.loads(response.text)
+            result_json["engine"] = "Gemini 3.6 Flash Cloud"
+            return result_json
 
-        return {
-            "has_waste": False,
-            "message": "Không thể kết nối dịch vụ phân tích hình ảnh."
-        }
+        return {"has_waste": False, "message": "Không thể kết nối AI."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "UpcycleDIY Backend Active (Roboflow YOLO AR + Gemini 3.6 Upload)"}
+    return {"status": "ok", "message": "UpcycleDIY Server Active (YOLO AR + Gemini Snap/Upload)"}

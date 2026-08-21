@@ -95,7 +95,6 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     "box": box_pct
                 })
 
-            # Gọi Gemini 1 LẦN DUY NHẤT để sinh các option DIY kèm bước thực hiện và dụng cụ
             combined_diy_ideas = []
             if client:
                 try:

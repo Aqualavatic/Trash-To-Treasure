@@ -10,10 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from ultralytics import YOLO
 
-from inference_sdk import InferenceHTTPClient
-
-app = FastAPI(title="UpcycleDIY Hybrid Backend")
+app = FastAPI(title="UpcycleDIY Hybrid Backend (Local YOLO)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,27 +24,26 @@ app.add_middleware(
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-roboflow_client = None
-if ROBOFLOW_API_KEY:
+local_yolo_model = None
+model_path = "models/best.pt"
+if os.path.exists(model_path):
     try:
-        roboflow_client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key=ROBOFLOW_API_KEY
-        )
-        print("✅ Kết nối Roboflow/YOLO11 thành công!")
+        local_yolo_model = YOLO(model_path)
+        print("✅ Đã load local YOLO model từ models/best.pt thành công!")
     except Exception as e:
-        print(f"⚠️ Lỗi khởi tạo Roboflow Client: {e}")
+        print(f"⚠️ Lỗi khởi tạo local YOLO model: {e}")
+else:
+    print(f"⚠️ Không tìm thấy file mô hình tại {model_path}!")
 
 
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    AR-SCANNER ENDPOINT (YOLO11 via Roboflow): 
-    - Nhận diện vị trí bounding box real-time liên tục với model TredNR/yolo11n_object365.
+    AR-SCANNER ENDPOINT (Local Ultralytics YOLO): 
+    - Nhận diện vị trí bounding box real-time bằng mô hình chạy local.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -56,43 +54,37 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         image.save(temp_path)
 
-        predictions = []
-        if roboflow_client:
-            try:
-                # Thay đổi model_id tại đây sang mô hình YOLO11 Object365
-                response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
-                if "predictions" in response:
-                    predictions = response["predictions"]
-            except Exception as e:
-                print(f"⚠️ Lỗi gọi mô hình AR: {e}")
-
-        img_w, img_h = image.size
         detected_objects = []
         all_labels = []
 
-        for pred in predictions:
-            x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
-            xmin = max(0, x - w / 2)
-            ymin = max(0, y - h / 2)
-            xmax = min(img_w, x + w / 2)
-            ymax = min(img_h, y + h / 2)
+        if local_yolo_model:
+            try:
+                results = local_yolo_model(temp_path, verbose=False)
+                img_w, img_h = image.size
 
-            box_pct = [
-                round((ymin / img_h) * 100, 1),
-                round((xmin / img_w) * 100, 1),
-                round((ymax / img_h) * 100, 1),
-                round((xmax / img_w) * 100, 1)
-            ]
+                for r in results:
+                    for box in r.boxes:
+                        coords = box.xyxy[0].tolist()
+                        xmin, ymin, xmax, ymax = coords
+                        conf = float(box.conf[0])
+                        cls_id = int(box.cls[0])
+                        raw_label = local_yolo_model.names[cls_id]
 
-            raw_label = pred["class"]
-            confidence = round(float(pred["confidence"]), 2)
-            all_labels.append(raw_label)
+                        box_pct = [
+                            round((ymin / img_h) * 100, 1),
+                            round((xmin / img_w) * 100, 1),
+                            round((ymax / img_h) * 100, 1),
+                            round((xmax / img_w) * 100, 1)
+                        ]
 
-            detected_objects.append({
-                "waste_type": raw_label,
-                "confidence": confidence,
-                "box": box_pct
-            })
+                        detected_objects.append({
+                            "waste_type": raw_label,
+                            "confidence": round(conf, 2),
+                            "box": box_pct
+                        })
+                        all_labels.append(raw_label)
+            except Exception as e:
+                print(f"⚠️ Lỗi chạy local YOLO inference: {e}")
 
         if len(detected_objects) > 0:
             return {
@@ -212,4 +204,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "UpcycleDIY Server Active (YOLO11 AR + Gemini Snap/Upload)"}
+    return {"status": "ok", "message": "UpcycleDIY Server Active (Local YOLO AR + Gemini Snap/Upload)"}

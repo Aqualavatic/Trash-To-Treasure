@@ -36,7 +36,7 @@ if ROBOFLOW_API_KEY:
             api_url="https://serverless.roboflow.com",
             api_key=ROBOFLOW_API_KEY
         )
-        print("✅ Kết nối Roboflow/YOLO-World thành công!")
+        print("✅ Kết nối Roboflow/YOLO11 thành công!")
     except Exception as e:
         print(f"⚠️ Lỗi khởi tạo Roboflow Client: {e}")
 
@@ -44,8 +44,8 @@ if ROBOFLOW_API_KEY:
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    AR-SCANNER ENDPOINT (YOLO / YOLO-World via Roboflow): 
-    - Nhận diện vị trí bounding box real-time liên tục.
+    AR-SCANNER ENDPOINT (YOLO11 via Roboflow): 
+    - Nhận diện vị trí bounding box real-time liên tục với model TredNR/yolo11n_object365.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -59,7 +59,8 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         predictions = []
         if roboflow_client:
             try:
-                response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
+                # Thay đổi model_id tại đây sang mô hình YOLO11 Object365
+                response = roboflow_client.infer(temp_path, model_id="TredNR/yolo11n_object365")
                 if "predictions" in response:
                     predictions = response["predictions"]
             except Exception as e:
@@ -211,4 +212,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "UpcycleDIY Server Active (YOLO AR + Gemini Snap/Upload)"}
+    return {"status": "ok", "message": "UpcycleDIY Server Active (YOLO11 AR + Gemini Snap/Upload)"}

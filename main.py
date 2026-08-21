@@ -60,7 +60,7 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         if roboflow_client:
             try:
                 # Thay đổi model_id tại đây sang mô hình YOLO11 Object365
-                response = roboflow_client.infer(temp_path, model_id="TredNR/yolo11n_object365")
+                response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in response:
                     predictions = response["predictions"]
             except Exception as e:

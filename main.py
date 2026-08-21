@@ -32,7 +32,6 @@ client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 roboflow_client = None
 if ROBOFLOW_API_KEY:
     try:
-        # Sử dụng Roboflow Inference Client (Bạn có thể đổi model_id sang YOLO-World của Roboflow nếu muốn)
         roboflow_client = InferenceHTTPClient(
             api_url="https://serverless.roboflow.com",
             api_key=ROBOFLOW_API_KEY
@@ -46,7 +45,7 @@ if ROBOFLOW_API_KEY:
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
     AR-SCANNER ENDPOINT (YOLO / YOLO-World via Roboflow): 
-    - Chuyên nhận diện vị trí bounding box real-time cực nhanh không gọi Gemini liên tục.
+    - Nhận diện vị trí bounding box real-time liên tục.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -60,7 +59,6 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         predictions = []
         if roboflow_client:
             try:
-                # Sử dụng model coco hoặc model YOLO-World đã cấu hình trên Roboflow
                 response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in response:
                     predictions = response["predictions"]
@@ -117,9 +115,9 @@ async def generate_diy_options(
     items: str = Form(...)
 ):
     """
-    ENDPOINT NÀY CHỈ GỌI MỘT LẦN KHI SNAP ẢNH:
-    - Nhận danh sách các vật thể được YOLO quét ổn định và hình ảnh đã snap.
-    - Gửi sang Gemini 3.6 Flash để tạo ra 3 options kèm theo chi tiết dụng cụ và các bước tương tác.
+    ENDPOINT SNAP ẢNH GỌI GEMINI:
+    - Nhận ảnh và danh sách vật thể do YOLO quét ổn định.
+    - Trả về danh sách 3 ý tưởng DIY kèm theo dụng cụ và các bước thực hiện.
     """
     if not client:
         raise HTTPException(status_code=500, detail="Gemini Client chưa được khởi tạo!")
@@ -134,8 +132,8 @@ Return strictly a JSON array of objects with keys:
 - 'id' (string)
 - 'title' (string)
 - 'description' (string)
-- 'materials' (array of strings: danh sách vật dụng/dụng cụ cần chuẩn bị)
-- 'steps' (array of strings: các bước thực hiện chi tiết để hệ thống kiểm tra tương tác từng bước)
+- 'materials' (array of strings)
+- 'steps' (array of strings)
 In Vietnamese."""
 
         response = client.models.generate_content(

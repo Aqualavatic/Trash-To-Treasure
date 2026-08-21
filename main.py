@@ -112,12 +112,13 @@ async def ar_detect_waste(file: UploadFile = File(...)):
 @app.post("/api/generate-diy-options")
 async def generate_diy_options(
     file: UploadFile = File(...),
-    items: str = Form(...)
+    items: str = Form(...),
+    lang: str = Form("vi")
 ):
     """
     ENDPOINT SNAP ẢNH GỌI GEMINI:
     - Nhận ảnh và danh sách vật thể do YOLO quét ổn định.
-    - Trả về danh sách 3 ý tưởng DIY kèm theo dụng cụ và các bước thực hiện.
+    - Trả về danh sách 3 ý tưởng DIY kèm theo dụng cụ và các bước thực hiện dựa theo ngôn ngữ.
     """
     if not client:
         raise HTTPException(status_code=500, detail="Gemini Client chưa được khởi tạo!")
@@ -126,15 +127,18 @@ async def generate_diy_options(
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         
+        is_en = lang.lower() == "en"
+        language_instruction = "Return ALL text values in ENGLISH." if is_en else "Trả về TOÀN BỘ bằng TIẾNG VIỆT."
+
         prompt = f"""I detected these stable items in the camera frame: [{items}]. 
 Combine these materials together to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
+{language_instruction}
 Return strictly a JSON array of objects with keys: 
 - 'id' (string)
 - 'title' (string)
 - 'description' (string)
 - 'materials' (array of strings)
-- 'steps' (array of strings)
-In Vietnamese."""
+- 'steps' (array of strings)"""
 
         response = client.models.generate_content(
             model='gemini-3.6-flash',

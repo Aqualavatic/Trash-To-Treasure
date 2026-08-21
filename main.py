@@ -44,9 +44,9 @@ if ROBOFLOW_API_KEY:
 @app.post("/api/ar-detect")
 async def ar_detect_waste(file: UploadFile = File(...)):
     """
-    AR-SCANNER ENDPOINT (YOLO-World / Instance Segmentation Model): 
-    - Detect toàn bộ vật thể trong khung hình.
-    - Gom nhóm các vật thể lại và yêu cầu Gemini 3.6 sáng tạo món đồ DIY kết hợp.
+    AR-SCANNER ENDPOINT:
+    - Bước 1: Dùng YOLO / Roboflow (Model Coco/Instance Segmentation) quét nhanh vật thể trong khung hình.
+    - Bước 2: Dùng Gemini MỘT LẦN DUY NHẤT để lập ý tưởng DIY, dụng cụ và chia bước chi tiết dựa trên các vật thể vừa quét.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -58,23 +58,13 @@ async def ar_detect_waste(file: UploadFile = File(...)):
         image.save(temp_path)
 
         predictions = []
-        is_offline_mode = False
-
         if roboflow_client:
             try:
                 response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
                 if "predictions" in response:
                     predictions = response["predictions"]
-            except Exception:
-                is_offline_mode = True
-
-        if is_offline_mode and roboflow_client:
-            try:
-                offline_res = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
-                if "predictions" in offline_res:
-                    predictions = offline_res["predictions"]
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ Lỗi Roboflow AR: {e}")
 
         if len(predictions) > 0:
             img_w, img_h = image.size
@@ -105,44 +95,42 @@ async def ar_detect_waste(file: UploadFile = File(...)):
                     "box": box_pct
                 })
 
-            # Gom tất cả các vật thể quét được gửi cho Gemini 3.6 tạo ý tưởng kết hợp chung kèm steps chi tiết
+            # Gọi Gemini 1 LẦN DUY NHẤT để sinh các option DIY kèm bước thực hiện và dụng cụ
             combined_diy_ideas = []
-            if client and not is_offline_mode:
+            if client:
                 try:
                     unique_items = ", ".join(set(all_labels))
-                    prompt = f"""I detected these multiple items together in a room/frame: [{unique_items}]. 
-Combine these materials together to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
+                    prompt = f"""I detected these multiple items together in a room/frame using computer vision: [{unique_items}]. 
+Combine these materials to suggest 3 creative DIY upcycling craft ideas that use these items simultaneously. 
 Return strictly a JSON array of objects with keys: 
 - 'id' (string)
 - 'title' (string)
 - 'description' (string)
-- 'materials' (array of strings: danh sách vật dụng/dụng cụ cần chuẩn bị)
-- 'steps' (array of strings: các bước thực hiện chi tiết cho từng bước hướng dẫn tương tác)
+- 'materials' (array of strings: danh sách dụng cụ/vật liệu cần dùng)
+- 'steps' (array of strings: các bước thao tác chi tiết, trong đó mỗi bước nên nhắc rõ tên vật dụng hoặc hành động để hệ thống camera verify)
 In Vietnamese."""
+                    
                     gemini_res = client.models.generate_content(
                         model='gemini-3.6-flash',
                         contents=prompt,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
                     combined_diy_ideas = json.loads(gemini_res.text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"⚠️ Lỗi Gemini sinh ý tưởng AR: {e}")
 
             if not combined_diy_ideas:
                 combined_diy_ideas = [
                     {
-                        "id": "1", 
-                        "title": "Bộ dụng cụ học tập kết hợp", 
-                        "description": "Tận dụng các vật liệu vừa quét để làm hộp đựng bút đa năng.",
-                        "materials": ["Vật liệu quét được", "Kéo", "Keo dán"],
-                        "steps": ["Chuẩn bị vật liệu sạch sẽ", "Cắt dán tạo hình hộp bút", "Trang trí hoàn thiện"]
-                    },
-                    {
-                        "id": "2", 
-                        "title": "Mô hình thủ công tổng hợp", 
-                        "description": "Gắn kết các vật thể lại với nhau bằng keo dán thành mô hình trang trí.",
-                        "materials": ["Vật liệu quét được", "Keo nến"],
-                        "steps": ["Xếp bố cục các vật thể", "Cố định bằng keo", "Trưng bày sản phẩm"]
+                        "id": "1",
+                        "title": "Hộp đựng bút tái chế đa năng",
+                        "description": "Kết hợp các vật liệu vừa quét để làm hộp đựng dụng cụ học tập.",
+                        "materials": ["Vật liệu quét", "Kéo", "Keo dán"],
+                        "steps": [
+                            "Chuẩn bị các vật liệu sạch sẽ trước mặt camera.",
+                            "Sử dụng kéo để cắt gọt định hình vật liệu.",
+                            "Dùng keo cố định các bộ phận lại với nhau."
+                        ]
                     }
                 ]
 
@@ -154,7 +142,7 @@ In Vietnamese."""
                 "diy_ideas": combined_diy_ideas
             }
 
-        return {"has_waste": False, "message": "Không phát hiện vật thể phù hợp qua AR."}
+        return {"has_waste": False, "message": "Không phát hiện vật thể qua AR."}
     except Exception as e:
         return {"has_waste": False, "error": str(e)}
     finally:
@@ -169,9 +157,7 @@ async def analyze_waste_image(
     lang: str = Form("vi")
 ):
     """
-    UPLOAD ENDPOINT:
-    - Gemini 3.6 Flash đảm nhận phân tích chuyên sâu khi Online.
-    - YOLO Fallback khi Offline.
+    UPLOAD ENDPOINT: Chuyên biệt cho Gemini 3.6 Flash phân tích ảnh tĩnh chi tiết.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File phải là hình ảnh!")
@@ -217,41 +203,11 @@ RULES:
                 result_json["engine"] = "Gemini 3.6 Flash Cloud"
                 return result_json
             except Exception as e:
-                print(f"⚠️ Gemini 3.6 lỗi. Chuyển sang Offline YOLO Fallback...")
-
-        if roboflow_client:
-            temp_path = "temp_offline_upload.jpg"
-            image.save(temp_path)
-            try:
-                response = roboflow_client.infer(temp_path, model_id="coco-dataset-vdnr1/41")
-                if "predictions" in response and len(response["predictions"]) > 0:
-                    pred = response["predictions"][0]
-                    waste_name = pred["class"]
-                    return {
-                        "has_waste": True,
-                        "waste_type": waste_name,
-                        "confidence": round(float(pred["confidence"]), 2),
-                        "category": "Rác tái chế (Offline Mode)",
-                        "instructions": ["Làm sạch vật liệu trước khi tái chế"],
-                        "diy_ideas": [{
-                            "title": f"Ý tưởng nhanh từ {waste_name}",
-                            "desc": "Dự án thủ công cơ bản",
-                            "difficulty": "Dễ",
-                            "time": "10 mins",
-                            "materials": [waste_name, "Kéo", "Keo"],
-                            "steps": ["Vệ sinh sạch sẽ", "Cắt dán tạo hình"]
-                        }],
-                        "engine": "YOLO Offline Fallback Engine"
-                    }
-            except Exception as ex:
-                print(f"Lỗi Offline Fallback Upload: {ex}")
-            finally:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                print(f"⚠️ Lỗi Gemini Upload: {e}")
 
         return {
             "has_waste": False,
-            "message": "Không thể kết nối AI và không tìm thấy vật thể."
+            "message": "Không thể kết nối dịch vụ phân tích hình ảnh."
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -259,4 +215,4 @@ RULES:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "UpcycleDIY Hybrid Server Active (YOLO-World/Segmentation AR + Gemini 3.6 Upload)"}
+    return {"status": "ok", "message": "UpcycleDIY Backend Active (Roboflow YOLO AR + Gemini 3.6 Upload)"}
